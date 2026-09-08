@@ -1,0 +1,5 @@
+[wokwi]
+version = 1
+firmware = 'slave.hex'
+elf = 'slave.elf'
+rfc2217ServerPort = 4000

@@ -1,0 +1,172 @@
+{
+    "version": 1,
+    "author": "Davinson CASTAÑO CANO",
+    "editor": "wokwi",
+    "parts": [
+        {
+            "type": "wokwi-arduino-mega",
+            "id": "mega",
+            "top": 125.4,
+            "left": -32.4,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-dht22",
+            "id": "dht1",
+            "top": -47.7,
+            "left": 109.8,
+            "attrs": {
+                "temperature": "35.7",
+                "humidity": "59.5"
+            }
+        },
+        {
+            "type": "wokwi-potentiometer",
+            "id": "pot1",
+            "top": -39.7,
+            "left": 19,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-gnd",
+            "id": "gnd1",
+            "top": 67.2,
+            "left": -19.8,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-vcc",
+            "id": "vcc1",
+            "top": 10.36,
+            "left": -19.2,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-led",
+            "id": "led1",
+            "top": 6,
+            "left": 157.4,
+            "attrs": {
+                "color": "cyan"
+            }
+        },
+        {
+            "type": "wokwi-rgb-led",
+            "id": "rgb1",
+            "top": 13.6,
+            "left": 231.5,
+            "attrs": {
+                "common": "cathode"
+            }
+        }
+    ],
+    "connections": [
+        [
+            "vcc1:VCC",
+            "pot1:VCC",
+            "orange",
+            [
+                "v9.6",
+                "h76.8"
+            ]
+        ],
+        [
+            "gnd1:GND",
+            "pot1:GND",
+            "black",
+            [
+                "v-9.6",
+                "h57.6"
+            ]
+        ],
+        [
+            "pot1:SIG",
+            "mega:A0",
+            "green",
+            [
+                "v297.6",
+                "h114.8"
+            ]
+        ],
+        [
+            "dht1:VCC",
+            "mega:5V",
+            "orange",
+            [
+                "v115.2",
+                "h7.3"
+            ]
+        ],
+        [
+            "mega:9",
+            "dht1:SDA",
+            "magenta",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "dht1:GND",
+            "mega:GND.2",
+            "black",
+            [
+                "v115.2",
+                "h-11.75"
+            ]
+        ],
+        [
+            "led1:C",
+            "dht1:GND",
+            "black",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "led1:A",
+            "mega:8",
+            "cyan",
+            [
+                "v28.8",
+                "h-48"
+            ]
+        ],
+        [
+            "rgb1:R",
+            "mega:6",
+            "red",
+            [
+                "v28.8",
+                "h-72.4"
+            ]
+        ],
+        [
+            "dht1:GND",
+            "rgb1:COM",
+            "black",
+            [
+                "v28.8",
+                "h95.9"
+            ]
+        ],
+        [
+            "rgb1:G",
+            "mega:3",
+            "green",
+            [
+                "v48",
+                "h-56.3"
+            ]
+        ],
+        [
+            "rgb1:B",
+            "mega:2",
+            "blue",
+            [
+                "v57.6",
+                "h-36.8"
+            ]
+        ]
+    ],
+    "dependencies": {}
+}
