@@ -54,32 +54,46 @@ El LCD pasa de "anuncios rotativos" a mostrar el **modo de operación activo** y
 
 ### 3.3 Comunicación serial con el computador → internet (lo que pide explícitamente la rúbrica de nivel medio)
 
-Arquitectura (basada en el patrón ya usado por `assets/code/wokwi/websocket-serial.py`, adaptado):
+**Estado: implementado** en `proyecto/nivel_medio/nivel_medio.ino` + `proyecto/nivel_medio/puente_serial.py` (pendiente de compilar/probar en vivo, ver sección 3.4). Arquitectura realmente construida (inspirada en el patrón de `assets/code/wokwi/websocket-serial.py`, pero con protocolo propio en texto plano en vez de JSON sobre el cable, para no depender de una librería JSON en el ESP32):
 
 ```
-ESP32 (USB-Serial, 115200 baud, líneas JSON)
-   │  TX: {"modo":"CONGESTION","cny":[1,1,0,0,1,0],"co2":612,"ldr":[820,750]}
-   │  RX: {"cmd":"SET_MODO","valor":"ECO"} / {"cmd":"CLIMA","lluvia":true}
+ESP32 (Serial USB, 9600 baud, texto plano línea a línea)
+   │  TX cada 1 s: "modo=CONGESTION fase=A dur=8.0 co2=612 ldr1=820 ldr2=750
+   │                cny1=1 cny2=1 cny3=0 cny4=0 cny5=1 cny6=0 p1=0 p2=1
+   │                peaton1_espera=0 peaton2_espera=1 lluvia=0 nocturno=0"
+   │  RX: "PING" (responde "PONG") / "LLUVIA=1" / "LLUVIA=0"
    ▼
-puente_serial.py  (en el computador, pyserial)
-   │  reenvía telemetría → POST a un endpoint HTTP/WebSocket
-   │  consulta una fuente externa periódicamente → escribe comandos de vuelta al ESP32
+puente_serial.py  (en el computador, pyserial + solo librerías estándar de Python)
+   │  hilo_lector():  parsea la telemetría "clave=valor" → dict → la reenvía
+   │                  como JSON por POST a ENDPOINT_TELEMETRIA (configurable,
+   │                  None por defecto para no golpear el requestcatcher de
+   │                  un tercero sin permiso)
+   │  hilo_clima():   cada 30 s consulta la API pública de Open-Meteo
+   │                  (sin API key) para la ubicación configurada y, si
+   │                  cambia el estado de lluvia, escribe "LLUVIA=1"/"LLUVIA=0"
+   │  hilo_ping():    cada 2 s escribe "PING" para que el LCD muestre
+   │                  "PC: CONECTADO" (auto-conciencia de conectividad)
    ▼
-Internet: endpoint de prueba (isa.requestcatcher.com o un servidor propio) +
-          fuente externa real (ej. API pública de clima tipo Open-Meteo, sin API key)
+Internet: Open-Meteo (`api.open-meteo.com/v1/forecast?...&current=precipitation`)
+          como fuente real de clima + endpoint propio opcional para telemetría
 ```
 
 Qué información viaja en cada sentido (esto es lo que "amplifica la autoadaptabilidad", como pide la rúbrica):
 
-- **ESP32 → PC → internet**: telemetría (modo activo, conteo de vehículos, CO2, luz ambiente) para un dashboard/log remoto — igual en espíritu a lo que hace `clase/sistemas-conectados.md` con Ubidots para la maqueta de clima, pero aplicado a la ciudad.
-- **Internet → PC → ESP32**: datos que el ESP32 no puede medir por sí mismo y que cambian su comportamiento — el más simple y defendible es **clima real de la ciudad** (lluvia/visibilidad) desde una API pública gratuita: si llueve, el puente le manda `{"cmd":"CLIMA","lluvia":true}` y el ESP32 extiende el tiempo de amarillo y el tiempo de cruce peatonal (frenado más largo en piso mojado). Esto es exactamente "auto-ajuste" + "conciencia del contexto" con una variable que **no está disponible localmente en la maqueta**, justificando por qué hace falta el puente serial-internet y no basta con los sensores propios.
+- **ESP32 → PC → internet**: telemetría (modo activo, fase, duración aplicada, CNY, CO2, LDR, botones, espera peatonal) que el puente convierte a JSON antes de reenviarla — mismo espíritu que `clase/sistemas-conectados.md` con Ubidots para la maqueta de clima, pero aplicado a la ciudad.
+- **Internet → PC → ESP32**: **clima real de la ubicación configurada** (lluvia, vía Open-Meteo) — un dato que el ESP32 no puede medir con sus propios sensores. Cuando el puente detecta lluvia, manda `LLUVIA=1` y `nivel_medio.ino` extiende `T_AMARILLO_BASE` en `BONUS_LLUVIA` (1 s) mientras dure. Esto es "auto-ajuste" + "conciencia del contexto" con una variable externa, justificando por qué hace falta el puente serial-internet y no basta con los sensores propios de la maqueta.
 
 Esto se implementa como **Serial + PC**, no WiFi directo del ESP32 (que sería trivialmente igual al nivel bajo con más pasos) — es la diferencia que la rúbrica pide explícitamente frente al ejemplo de `esp_send_data.ino`/`esp_get_data.ino`.
 
 ### 3.4 Entregable de nivel medio
-- `proyecto/nivel_medio/nivel_medio.ino` (MEF extendida con SOM + lectura/escritura por `Serial`)
-- `proyecto/nivel_medio/puente_serial.py` (script en el computador)
-- `proyecto/nivel_medio/README.md` (qué modos existen, cómo se disparan, cómo correr el puente)
+
+**Estado: código escrito, sin compilar ni probar todavía.**
+
+- [x] `proyecto/nivel_medio/nivel_medio.ino` — MEF con SOM (congestión, ECO, nocturno, peatonal, lluvia) + protocolo Serial de la sección 3.3
+- [x] `proyecto/nivel_medio/puente_serial.py` — puente Serial↔Internet (Open-Meteo + telemetría)
+- [x] `proyecto/nivel_medio/README.md` — modos, cómo correr el puente, protocolo Serial documentado
+- [x] `proyecto/nivel_medio/diagram.json` / `wokwi.toml` — mismo cableado de `nivel_bajo`, puerto RFC2217 `4001` (distinto al `4000` de nivel bajo, para poder tener ambos simuladores abiertos a la vez en la demo comparativa)
+- [ ] **Pendiente**: compilar con `arduino-cli` (no disponible en el entorno donde se escribió el código — hay que hacerlo localmente, comando en el README del proyecto), correr en Wokwi junto con `puente_serial.py` y confirmar que los 5 modos se disparan como se documentó aquí y en el README
 
 ## 4. Nivel alto — propuesta ("de alguna manera")
 
@@ -120,7 +134,7 @@ Con esto ya se resuelve la sección "propuestas para llevar el sistema al nivel 
 ## 6. Checklist frente a la rúbrica
 
 - [x] Nivel bajo implementado y usando todas las E/S (`proyecto/nivel_bajo/`)
-- [ ] Nivel medio implementado (SOM + serial-internet) — `proyecto/nivel_medio/` (por crear)
+- [x] Nivel medio: código escrito (SOM + serial-internet, sección 3.4) — `proyecto/nivel_medio/` — **falta compilar y probar en vivo**
 - [ ] Nivel alto implementado (Q-learning + negociación) — `proyecto/nivel_alto/` (por crear)
 - [ ] Presentación con comparación de los 3 niveles
 - [ ] Propuestas concretas para llevar el sistema más allá del nivel alcanzado (sección 4.3 ya da el contenido)
