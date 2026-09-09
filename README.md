@@ -6,7 +6,7 @@ Proyecto final del curso **Ingeniería de Sistemas Autoadaptables (ISA262)**: un
 
 - **`docs/`** — copia local, literal, del sitio del curso ([isa262.davinsony.com](https://isa262.davinsony.com)). Cada `.md` tiene un `source:` con la URL original. Empieza por [`docs/README.md`](docs/README.md) (índice) y [`docs/GAPS.md`](docs/GAPS.md) (temas que el sitio no cubre, sobre todo nivel alto).
 - **`assets/`** — recursos descargados: código de ejemplo, diapositivas de clase, PDFs, esquemáticos, proyectos Wokwi.
-- **`proyecto/`** — una carpeta por nivel de implementación (`nivel_bajo/`, `nivel_medio/`, `nivel_alto/`), cada una con su código y su propio README de qué debería pasar al simularla.
+- **`proyecto/`** — una carpeta por nivel de implementación (`nivel_bajo/`, `nivel_medio/`, `nivel_alto/`), cada una con su código y su propio README de qué debería pasar al simularla. `proyecto/sim/` tiene las pruebas: un arnés nativo (`run.sh`), guiones para el simulador Wokwi (`wokwi/run_wokwi.sh`) y el entrenamiento del nivel alto (`entrenar.sh`).
 
 ## Maqueta: pines de entrada/salida
 

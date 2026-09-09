@@ -24,6 +24,14 @@ El tiempo que tarda el LCD por I2C (en el mock es instantáneo), el comportamien
 
 En `test_medio.cpp` (o `test_bajo.cpp`), un `else if (esc == "nombre")` con los helpers `runFor`, `runUntilPhase`, `measurePhase`, `enviar` y las macros `CHECK`/`CHECK_NEAR`, y el nombre en la lista de `run.sh`. Las entradas se fijan escribiendo `pin_level[...]` (digital) o `analog_value[...]` (ADC), y lo que el firmware escribe por `Serial` queda en `serial_out`.
 
+## Entrenamiento del nivel alto (`entrenar.sh`)
+
+```bash
+proyecto/sim/entrenar.sh [episodios por patrón = 600] [semillas de comparación = 3]
+```
+
+Compila `nivel_alto.ino` sin la tabla entrenada y lo deja aprender contra el modelo de tráfico de `trafico.h` (llegadas Poisson por vía, un vehículo sale cada 1.5 s de verde, los CNY muestran presencia hasta 3, peatones al azar) rotando cinco patrones de tráfico, con α y ε decreciendo. Exporta el resultado a `nivel_alto/tabla_q.h`, imprime la política aprendida y verifica cuatro propiedades de sentido común (vías vacías → verde corto, cola propia llena → verde largo, etc.). Después compila nivel medio, nivel alto con la tabla heurística y nivel alto con la tabla entrenada, los corre contra el mismo tráfico (mismas semillas) y escribe `nivel_alto/entrenamiento.md` con esperas medias, colas y peatones. Tarda alrededor de un minuto.
+
 ## Wokwi automatizado (`wokwi/`)
 
 Los mismos comportamientos, pero corriendo el binario real dentro del simulador Wokwi, sin abrir VS Code: `wokwi/run_wokwi.sh` usa [`wokwi-cli`](https://github.com/wokwi/wokwi-cli/releases) con guiones YAML que presionan botones, mueven potenciómetros, escriben en el serial y comprueban los GPIO de los LEDs y el texto de la telemetría. Necesita un token gratuito de wokwi.com/dashboard/ci en `WOKWI_CLI_TOKEN`.

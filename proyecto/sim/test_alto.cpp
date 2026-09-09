@@ -49,11 +49,12 @@ int main(int argc, char** argv) {
   if (esc == "baseline") {
     setup(); tick();
     CHECK(faseLuces() == 'A', "arranca en fase A");
-    CHECK(agente[0].estado == 0 && agente[0].accion == 0, "via 1 sin trafico: estado 0, la tabla inicial elige el verde corto (3 s)");
-    CHECK_NEAR(measurePhase(), 3, 0.01, "A = 3 s (accion 0)");
+    CHECK(agente[0].estado == 0 && agente[0].accion == mejorAccion(0, 0), "via 1 sin trafico: estado 0 y la mejor accion de la tabla");
+    CHECK_NEAR(measurePhase(), ACCION_VERDE[agente[0].accion], 0.01, "A dura lo que dice la accion elegida");
     CHECK_NEAR(measurePhase(), 2, 0.01, "B = 2 s (regla fija)");
-    CHECK_NEAR(measurePhase(), 3, 0.01, "C = 3 s");
+    CHECK_NEAR(measurePhase(), ACCION_VERDE[agente[1].accion], 0.01, "C dura lo que dice la accion elegida");
     CHECK_NEAR(measurePhase(), 2, 0.01, "D = 2 s");
+    CHECK(mejorAccion(0, 0) == 0 && mejorAccion(1, 0) == 0, "con las vias vacias la tabla prefiere el verde corto");
     CHECK(violaciones == 0, "sin violaciones de luces");
   } else if (esc == "tabla_inicial") {
     pin_level[CNY1] = LOW; pin_level[CNY2] = LOW; pin_level[CNY3] = LOW;  // via 1 llena, via 2 vacia
@@ -67,24 +68,27 @@ int main(int argc, char** argv) {
     for (int p : {CNY1, CNY2, CNY3}) pin_level[p] = HIGH;
     analog_value[CO2] = 1000;  // eco
     measurePhase();  // resto de D
-    CHECK_NEAR(measurePhase(), 5, 0.01, "con CO2 alto y vias vacias: verde medio (5 s)");
+    CHECK_NEAR(measurePhase(), ACCION_VERDE[mejorAccion(0, 16)], 0.01, "con CO2 alto y vias vacias dura lo que la tabla dice para el estado 16");
     CHECK(agente[0].estado == 16, "el bit eco se refleja en el estado (16)");
   } else if (esc == "recompensa") {
     pin_level[CNY1] = LOW;  // un vehiculo en via 1
     setup(); tick();
-    CHECK(agente[0].accion == 1, "cola 1 -> verde de 5 s");
+    double verde = ACCION_VERDE[agente[0].accion];
+    CHECK(agente[0].accion == mejorAccion(0, 1), "cola 1 -> la mejor accion de la tabla para el estado 1");
     runFor(1.5); pin_level[CNY1] = HIGH;  // el vehiculo sale a los 1.5 s
     measurePhase();  // termina A
-    printf("  pasaron=%d verdeVacio=%.3f r=%.3f\n", agente[0].pasaron, agente[0].verdeVacio, agente[0].recompensa);
+    printf("  verde=%.0f pasaron=%d verdeVacio=%.3f espera=%.3f\n", verde, agente[0].pasaron, agente[0].verdeVacio, agente[0].espera);
     CHECK(agente[0].pasaron == 1, "cuenta 1 vehiculo que paso (transicion detectado -> libre)");
-    CHECK_NEAR(agente[0].verdeVacio, 3.5, 0.02, "3.5 s de verde con la via vacia");
-    CHECK_NEAR(agente[0].recompensa, 1 - 0.3 * 3.5, 0.02, "r = pasaron - 0.3*verdeVacio - 0.4*colaOtra");
-    CHECK(agente[0].pendiente, "la transicion queda pendiente hasta la proxima decision de la via 1");
-    // via 2 con cola ajena al final: castigo por dejar esperando
-    pin_level[CNY1] = LOW; pin_level[CNY2] = LOW;
-    runUntilPhase('C'); measurePhase();
-    printf("  via2: r=%.3f\n", agente[1].recompensa);
-    CHECK_NEAR(agente[1].recompensa, -0.3 * 3 - 0.4 * 2, 0.02, "via 2 vacia 3 s con 2 esperando en via 1: r = -0.9 - 0.8");
+    CHECK_NEAR(agente[0].verdeVacio, verde - 1.5, 0.02, "el resto del verde cuenta como via vacia");
+    CHECK_NEAR(agente[0].espera, 1.5, 0.02, "1.5 vehiculo-segundos de espera visible (el carro estuvo 1.5 s)");
+    CHECK(agente[0].pendiente, "el paso queda abierto hasta la proxima decision de la via 1");
+    pin_level[CNY4] = LOW; pin_level[CNY5] = LOW;  // dos esperando en via 2 durante el resto del ciclo
+    runUntilPhase('A'); tick();  // cierra el paso de la via 1
+    printf("  paso cerrado: pasaron=%d verdeVacio=%.3f espera=%.3f r=%.3f\n", agente[0].pasaronPaso, agente[0].verdeVacioPaso, agente[0].esperaPaso, agente[0].recompensa);
+    CHECK(agente[0].esperaPaso > 1.5, "la espera del paso incluye a los que esperaron en la otra via durante el resto del ciclo");
+    CHECK_NEAR(agente[0].duracionPaso, verde + 2 + ACCION_VERDE[agente[1].accion] + 2, 0.02, "el paso duro un ciclo completo (A+B+C+D)");
+    CHECK_NEAR(agente[0].recompensa, (0.5 * agente[0].pasaronPaso - 0.1 * agente[0].esperaPaso - 0.1 * agente[0].verdeVacioPaso) * 10 / agente[0].duracionPaso, 0.001, "r = (0.5*pasaron - 0.1*espera - 0.1*verdeVacio) normalizado a 10 s");
+    CHECK(!agente[0].pendiente, "y el paso queda cerrado");
   } else if (esc == "aprendizaje") {
     setup(); tick();
     float q0 = Q[0][0][0];
@@ -94,10 +98,11 @@ int main(int argc, char** argv) {
     float esperado = q0 + ALPHA * (agente[0].recompensa + GAMMA * maxSiguiente - q0);
     printf("  Q[0][0][0]: %.4f -> %.4f (r=%.2f)\n", q0, Q[0][0][0], agente[0].recompensa);
     CHECK_NEAR(Q[0][0][0], esperado, 0.0005, "actualizacion Q-learning: q += alpha*(r + gamma*max q' - q)");
-    CHECK(Q[0][0][0] < q0, "un verde con la via vacia baja el valor de esa accion");
+    CHECK(agente[0].recompensa < 0, "un verde con la via vacia tiene recompensa negativa");
     for (int i = 0; i < 40; i++) { runUntilPhase('A'); measurePhase(); }
     printf("  tras 40 ciclos vacios: Q[0][0] = %.3f %.3f %.3f\n", Q[0][0][0], Q[0][0][1], Q[0][0][2]);
     CHECK(mejorAccion(0, 0) == 0, "con las vias siempre vacias sigue prefiriendo el verde corto (el largo castiga mas)");
+    CHECK(Q[0][0][0] > Q[0][0][2], "y el verde largo vale menos que el corto en ese estado");
     CHECK(violaciones == 0, "sin violaciones de luces mientras aprende");
   } else if (esc == "exploracion") {
     setup(); tick();
@@ -127,19 +132,20 @@ int main(int argc, char** argv) {
     CHECK(violaciones == 0, "sin violaciones de luces");
   } else if (esc == "memoria") {
     setup(); tick();
-    CHECK(!tablaDesdeFlash && sim::prefs.count("q") == 0, "sin nada en flash arranca con la tabla heuristica");
+    float inicial = Q[0][0][0];
+    CHECK(!tablaDesdeFlash && sim::prefs.count("q") == 0, "sin nada en flash arranca con la tabla inicial (entrenada o heuristica)");
     for (int i = 0; i < 6; i++) { runUntilPhase('A'); measurePhase(); }  // 12 decisiones -> se guardo sola a las 10
     CHECK(sim::prefs.count("q") == 1 && sim::prefs["q"].size() == sizeof(Q), "tras 10 decisiones la tabla se guardo en flash (768 bytes)");
-    float aprendido = Q[0][0][0];
-    CHECK(aprendido < -0.05, "el valor guardado ya refleja aprendizaje");
     enviar("Q_SAVE\n"); tick();
-    inicializarQ();                        // simula el reinicio: la RAM vuelve a la heuristica...
-    CHECK_NEAR(Q[0][0][0], 0, 0.0001, "(RAM reiniciada a la heuristica)");
+    float aprendido = Q[0][0][0];
+    CHECK(fabs(aprendido - inicial) > 0.01, "el valor ya difiere de la tabla inicial (aprendio)");
+    inicializarQ();                        // simula el reinicio: la RAM vuelve a la tabla inicial...
+    CHECK_NEAR(Q[0][0][0], inicial, 0.0001, "(RAM reiniciada a la tabla inicial)");
     cargarQ();                             // ...y setup() la recupera de la flash
     CHECK_NEAR(Q[0][0][0], aprendido, 0.0001, "cargarQ() recupera lo aprendido: la experiencia sobrevive al reinicio");
     CHECK(tablaDesdeFlash, "y lo reporta (nvs=1)");
     serial_out.clear(); enviar("Q_RESET\n"); tick();
-    CHECK(sim::prefs.count("q") == 0 && fabs(Q[0][0][0]) < 0.0001 && !tablaDesdeFlash, "Q_RESET borra la flash y vuelve a la heuristica");
+    CHECK(sim::prefs.count("q") == 0 && fabs(Q[0][0][0] - inicial) < 0.0001 && !tablaDesdeFlash, "Q_RESET borra la flash y vuelve a la tabla inicial");
     CHECK(serial_out.find("Q_RESET ok") != std::string::npos, "Q_RESET responde");
     serial_out.clear(); enviar("Q_DUMP\n"); tick();
     int lineas = 0; size_t pos = 0; while ((pos = serial_out.find("\nQ ", pos)) != std::string::npos) { lineas++; pos++; }

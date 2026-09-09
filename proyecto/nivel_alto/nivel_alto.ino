@@ -15,6 +15,9 @@
 #include <math.h>
 #include <Preferences.h>
 #include "TimerMEF.h"
+#ifndef SIN_TABLA_ENTRENADA
+#include "tabla_q.h"  // tabla entrenada offline por proyecto/sim/entrenar.sh
+#endif
 
 // --- Pines (idénticos a nivel_bajo, misma maqueta) ---
 #define LDR1 12 // LDR semaforo 1, pin A0
@@ -70,30 +73,43 @@ const double MAX_ESPERA_PEATON = 6;  // seg.: con trafico, el peaton espera como
 // --- Agente de aprendizaje por refuerzo (Q-learning tabular), uno por via ---
 // Estado (32 por via): cola propia (0-3 CNY) x cola de la otra via (0-3) x CO2 alto (0/1).
 // Accion (3): duracion del proximo verde de esa via.
-// Recompensa al terminar el verde: vehiculos que pasaron (transicion
-// detectado -> libre en los CNY propios) menos castigo por segundos de verde
-// con la via vacia y por vehiculos que quedaron esperando en la otra via.
+// Un paso del agente va desde que empieza su verde hasta que vuelve a empezar
+// (un ciclo completo). Recompensa del paso: menos la espera visible acumulada
+// (vehiculos detectados en las dos vias, integrados en el tiempo, que es lo
+// que un semaforo quiere minimizar), mas un premio por cada vehiculo que salio
+// durante su verde (transicion detectado -> libre en sus CNY), menos un
+// castigo por segundos de verde con la via vacia (para que no regale verde).
+// Todo se normaliza a T_REF segundos: los pasos duran distinto segun la accion
+// (un verde de 3 s hace ciclos mas cortos que uno de 8 s) y sin normalizar el
+// agente aprenderia que los ciclos cortos "cuestan menos" solo por ser cortos.
 const int NUM_ACCIONES = 3;
 const double ACCION_VERDE[NUM_ACCIONES] = {3, 5, 8};
 const int NUM_ESTADOS = 32;
 float Q[2][NUM_ESTADOS][NUM_ACCIONES];
-const float ALPHA = 0.1;    // tasa de aprendizaje
+const float ALPHA = 0.1;    // tasa de aprendizaje en vivo
+float alpha = ALPHA;        // el entrenamiento offline la va bajando para que la tabla converja
 const float GAMMA = 0.8;    // cuanto pesa el futuro
 const float EPSILON = 0.1;  // probabilidad de explorar una accion distinta a la mejor (valor inicial)
 float epsilon = EPSILON;    // ajustable en vivo con "EPSILON=<0..1>" por serial, util en la demo
-const float PESO_VERDE_VACIO = 0.3;
-const float PESO_COLA_OTRA = 0.4;
+const float PESO_ESPERA = 0.1;       // por cada vehiculo-segundo visible esperando (ambas vias)
+const float PESO_PASARON = 0.5;      // por cada vehiculo que salio durante el verde propio
+const float PESO_VERDE_VACIO = 0.1;  // por cada segundo de verde propio con la via vacia
+const double T_REF = 10;             // segundos a los que se normaliza la recompensa de cada paso
 
 struct Agente {
   int estado = 0;             // estado observado al empezar el verde actual
   int accion = 1;             // accion elegida para el verde actual
   bool exploro = false;       // si la ultima decision fue exploracion
   bool pendiente = false;     // hay una transicion (estado, accion, r) sin cerrar con s'
-  float recompensa = 0;       // recompensa del ultimo verde terminado
+  float recompensa = 0;       // recompensa del ultimo paso cerrado
   float recompensaTotal = 0;  // acumulada desde el arranque
   int decisiones = 0;
-  int pasaron = 0;            // vehiculos que salieron durante el verde actual
-  double verdeVacio = 0;      // segundos del verde actual con la via vacia
+  int pasaron = 0;            // vehiculos que salieron durante el verde del paso actual
+  double verdeVacio = 0;      // segundos de verde del paso actual con la via vacia
+  double espera = 0;          // vehiculo-segundos visibles (ambas vias) en el paso actual
+  int pasaronPaso = 0;        // los mismos tres, del ultimo paso cerrado (telemetria)
+  double verdeVacioPaso = 0, esperaPaso = 0, duracionPaso = 0;
+  unsigned long inicioPasoMs = 0;
   bool cnyPrev[3] = {false, false, false};
   unsigned long ultimoMuestreoMs = 0;
 };
@@ -201,7 +217,7 @@ void loop() {
   if (modoNocturno) {
     actualizarParpadeoNocturno();
   } else {
-    observarVerde();
+    observarTrafico();
     actualizarSemaforo();
   }
   actualizarAnuncio();
@@ -213,11 +229,16 @@ void loop() {
 // Agente
 // =====================================================================
 
-// Tabla inicial: una heuristica suave (verde mas largo cuanto mas cola propia,
-// mas corto cuanto mas cola ajena, un poco mas largo con CO2 alto) para que el
-// sistema arranque razonable. El aprendizaje la va reemplazando; la version
-// entrenada offline llegara en tabla_q.h.
+// Tabla inicial. Si existe tabla_q.h (entrenada offline con este mismo codigo
+// contra el modelo de trafico del arnes) se parte de ella: el ESP32 arranca ya
+// sabiendo y sigue afinando en vivo. Si no, una heuristica suave (verde mas
+// largo cuanto mas cola propia, mas corto cuanto mas cola ajena, algo mas largo
+// con CO2 alto) para que el sistema arranque razonable y aprenda desde ahi.
 void inicializarQ() {
+#ifdef TABLA_Q_ENTRENADA
+  memcpy(Q, TABLA_Q, sizeof(Q));
+  return;
+#endif
   for (int v = 0; v < 2; v++) {
     for (int s = 0; s < NUM_ESTADOS; s++) {
       int colaPropia = s % 4, colaOtra = (s / 4) % 4, eco = s / 16;
@@ -283,15 +304,20 @@ int mejorAccion(int via, int estado) {
   return mejor;
 }
 
-// Se llama al empezar el verde de una via. Primero cierra la transicion
-// anterior de esa via (ya se conoce s'), luego elige la accion para este verde.
+// Se llama al empezar el verde de una via. Primero cierra el paso anterior de
+// esa via (ya se conoce s' y toda la espera del ciclo), luego elige la accion.
 double decidirVerde(int via) {
   Agente &ag = agente[via];
   int estado = observarEstado(via);
   if (ag.pendiente) {
+    double dur = (millis() - ag.inicioPasoMs) / 1000.0;
+    if (dur < 0.001) dur = 0.001;
+    ag.recompensa = (PESO_PASARON * ag.pasaron - PESO_ESPERA * ag.espera - PESO_VERDE_VACIO * ag.verdeVacio) * (T_REF / dur);
+    ag.recompensaTotal += ag.recompensa;
+    ag.pasaronPaso = ag.pasaron; ag.verdeVacioPaso = ag.verdeVacio; ag.esperaPaso = ag.espera; ag.duracionPaso = dur;
     float maxSiguiente = Q[via][estado][mejorAccion(via, estado)];
     float &q = Q[via][ag.estado][ag.accion];
-    q += ALPHA * (ag.recompensa + GAMMA * maxSiguiente - q);
+    q += alpha * (ag.recompensa + GAMMA * maxSiguiente - q);
     ag.pendiente = false;
   }
   ag.estado = estado;
@@ -301,7 +327,9 @@ double decidirVerde(int via) {
   if (++decisionesSinGuardar >= GUARDAR_CADA) guardarQ();
   ag.pasaron = 0;
   ag.verdeVacio = 0;
+  ag.espera = 0;
   ag.ultimoMuestreoMs = millis();
+  ag.inicioPasoMs = millis();
   for (int i = 0; i < 3; i++) ag.cnyPrev[i] = cnyDeVia(via, i);
   return ACCION_VERDE[ag.accion];
 }
@@ -311,32 +339,31 @@ bool cnyDeVia(int via, int i) {
   return vehiculoDetectado(pines[via][i]);
 }
 
-// Durante el verde: cuenta vehiculos que salen (detectado -> libre) y el
-// tiempo con la via vacia. Se muestrea en cada vuelta del loop.
-void observarVerde() {
-  int via;
-  if (fase == FASE_A) via = 0;
-  else if (fase == FASE_C) via = 1;
-  else return;
-  Agente &ag = agente[via];
+// En cada vuelta del loop: los dos agentes acumulan la espera visible de
+// ambas vias; el de la via en verde ademas cuenta los vehiculos que salen
+// (detectado -> libre) y el tiempo de verde con su via vacia.
+void observarTrafico() {
   unsigned long ahora = millis();
-  if (colaDeVia(via) == 0) ag.verdeVacio += (ahora - ag.ultimoMuestreoMs) / 1000.0;
-  ag.ultimoMuestreoMs = ahora;
-  for (int i = 0; i < 3; i++) {
-    bool actual = cnyDeVia(via, i);
-    if (ag.cnyPrev[i] && !actual) ag.pasaron++;
-    ag.cnyPrev[i] = actual;
+  int totalVisible = colaDeVia(0) + colaDeVia(1);
+  for (int via = 0; via < 2; via++) {
+    Agente &ag = agente[via];
+    double dt = (ahora - ag.ultimoMuestreoMs) / 1000.0;
+    ag.ultimoMuestreoMs = ahora;
+    ag.espera += totalVisible * dt;
+    bool enVerde = (via == 0 && fase == FASE_A) || (via == 1 && fase == FASE_C);
+    if (!enVerde) continue;
+    if (colaDeVia(via) == 0) ag.verdeVacio += dt;
+    for (int i = 0; i < 3; i++) {
+      bool actual = cnyDeVia(via, i);
+      if (ag.cnyPrev[i] && !actual) ag.pasaron++;
+      ag.cnyPrev[i] = actual;
+    }
   }
 }
 
-// Al terminar el verde de una via: calcula la recompensa y deja la transicion
-// pendiente hasta que la via vuelva a decidir (ahi se conoce s').
-void cerrarVerde(int via) {
-  Agente &ag = agente[via];
-  ag.recompensa = ag.pasaron - PESO_VERDE_VACIO * ag.verdeVacio * ACELERACION - PESO_COLA_OTRA * colaDeVia(1 - via);
-  ag.recompensaTotal += ag.recompensa;
-  ag.pendiente = true;
-}
+// Al terminar el verde de una via el paso sigue abierto (falta la espera del
+// resto del ciclo); se cierra en la proxima decidirVerde de esa via.
+void cerrarVerde(int via) { agente[via].pendiente = true; }
 
 // =====================================================================
 // Semaforo

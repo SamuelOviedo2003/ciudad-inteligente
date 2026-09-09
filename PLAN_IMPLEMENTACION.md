@@ -141,9 +141,12 @@ Como el curso no define nivel alto, hay que **elegir y justificar** una técnica
 - Esto sigue siendo Generación 2 (aprende de su propia experiencia y ajusta su comportamiento), solo que el "aprender" ocurre offline antes de la demo, no en vivo durante ella — una simplificación honesta y necesaria dado el hardware y el tiempo de clase disponibles, no una renuncia al concepto.
 
 ### 4.3 Entregable de nivel alto
-- `proyecto/nivel_alto/nivel_alto.ino` (ejecuta la política Q pre-entrenada por vía + factor de aceleración para la demo, reutiliza el puente serial de nivel medio)
-- `proyecto/nivel_alto/simulador_trafico.py` (entrena la tabla Q offline contra tráfico simulado, exporta `tabla_q.h`)
-- `proyecto/nivel_alto/README.md` (qué aprendió la política, cómo se entrenó, tabla Q antes/después de entrenar)
+
+**Estado (2026-09-09): implementado y verificado en el arnés nativo y en Wokwi.** Cambios frente a lo planeado arriba: el estado del agente es cola propia × cola ajena × CO2 (la petición peatonal no entra al estado porque la atiende una regla por encima del agente); el entrenamiento offline no usa un simulador en Python sino el **mismo `nivel_alto.ino` compilado en el PC** (`proyecto/sim/entrenar.sh`, modelo de tráfico en `proyecto/sim/trafico.h`), así lo que aprende es exactamente lo que corre en la placa; y el agente sigue aprendiendo en vivo (ε = 0.1) con la tabla guardada en la flash (NVS), no solo ejecuta la política.
+
+- [x] `proyecto/nivel_alto/nivel_alto.ino` — agente Q-learning por vía, reglas de seguridad de nivel medio por encima, `ACELERACION`, tabla en NVS, comandos `Q_DUMP`/`Q_SAVE`/`Q_RESET`/`EPSILON=`
+- [x] `proyecto/sim/entrenar.sh` + `trafico.h` + `entrenar.cpp` + `comparar.cpp` — entrenamiento offline, exporta `proyecto/nivel_alto/tabla_q.h`, compara medio vs alto con el mismo tráfico
+- [x] `proyecto/nivel_alto/README.md` y `entrenamiento.md` — qué aprendió, cómo se entrenó, comparación (el alto iguala en promedio a las reglas de nivel medio y las mejora en las horas pico desbalanceadas)
 
 ### 4.4 Qué se necesitaría para llegar más lejos (para la sección de "propuestas" de la presentación, 10 pts)
 Con esto se resuelve la sección "propuestas para llevar el sistema al nivel alto" que pide la rúbrica:
@@ -167,7 +170,7 @@ Con esto se resuelve la sección "propuestas para llevar el sistema al nivel alt
 
 - [x] Nivel bajo implementado y usando todas las E/S (`proyecto/nivel_bajo/`)
 - [x] Nivel medio: código escrito, corregido, compilado y cargado en dos ESP32-S3 reales (SOM + serial-internet, secciones 3.4–3.5) — `proyecto/nivel_medio/` — **falta la prueba en vivo de `DET_REMOTO` entre las dos maquetas con `puente_serial.py` corriendo**
-- [ ] Nivel alto: tabla Q pre-entrenada offline + política ejecutándose en el ESP32 (sección 4.2) — `proyecto/nivel_alto/` (por crear)
+- [x] Nivel alto: agente Q-learning con tabla pre-entrenada offline y aprendizaje en vivo (sección 4.3) — `proyecto/nivel_alto/`
 - [ ] Presentación con comparación de los 3 niveles
 - [ ] Propuestas concretas para llevar el sistema más allá del nivel alcanzado (sección 4.4 ya da el contenido)
 - [ ] Demo en vivo del nivel más alto alcanzado
