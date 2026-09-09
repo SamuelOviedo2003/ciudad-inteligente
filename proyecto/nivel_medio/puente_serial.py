@@ -59,9 +59,9 @@ ID_MAQUETA_DEFECTO = "A"  # cambiar a "B" al correrlo en la otra maqueta
 # no usar aqui una URL de un tercero sin permiso.
 ENDPOINT_TELEMETRIA = None  # ej: "https://TU-SUBDOMINIO.requestcatcher.com/telemetria"
 
-# Ubicacion para consultar clima real (por defecto: Bogota)
-LATITUD = 4.711
-LONGITUD = -74.0721
+# Ubicacion para consultar clima real (por defecto: Medellin)
+LATITUD = 6.2442
+LONGITUD = -75.5812
 INTERVALO_CLIMA_S = 30  # cada cuanto se consulta el clima real
 INTERVALO_PING_S = 2    # cada cuanto se le avisa al ESP32 que el puente sigue vivo
 
@@ -71,7 +71,25 @@ INTERVALO_PING_S = 2    # cada cuanto se le avisa al ESP32 que el puente sigue v
 # (ej. incluir su usuario de GitHub) para no chocar con otros grupos del
 # curso usando el mismo nombre por defecto.
 TOPIC_RED = "isa262-ciudad-autoadaptable-CAMBIAR-por-uno-propio"
-INTERVALO_RED_S = 5  # cada cuanto se revisa si la otra maqueta mando algo nuevo
+# Limites de ntfy.sh (docs.ntfy.sh/publish/#limitations): 60 peticiones de
+# rafaga por IP, luego se repone 1 cada 5 s, y 250 mensajes publicados por dia.
+# Publicar una vez por segundo (una version anterior lo hacia) agota la rafaga
+# en un minuto y el cupo diario en cuatro. Por eso: se consulta cada 10 s, se
+# publica solo cuando cambia el conteo (nunca mas seguido que cada 5 s) y, si
+# no cambia, un latido cada 2 min para que la otra maqueta sepa que seguimos
+# vivos (el ESP32 descarta el conteo remoto si no le llega nada en 5 min).
+INTERVALO_RED_S = 10             # cada cuanto se revisa si la otra maqueta mando algo nuevo
+INTERVALO_MIN_PUBLICACION_S = 5  # separacion minima entre publicaciones
+INTERVALO_LATIDO_S = 120         # republicar aunque el conteo no haya cambiado
+
+# Varios hilos escriben al mismo puerto serie; el lock evita que dos comandos
+# se mezclen en una sola linea.
+lock_serial = threading.Lock()
+
+
+def escribir(ser, texto):
+    with lock_serial:
+        ser.write(texto.encode())
 
 
 def abrir_serial(puerto):
@@ -136,7 +154,10 @@ def publicar_conteo_local(id_maqueta, det):
 
 def hilo_lector(ser, id_maqueta):
     """ESP32 -> PC: lee telemetria, la reenvia a internet y publica el conteo
-    local para que la otra maqueta lo vea (ver hilo_red)."""
+    local para que la otra maqueta lo vea (ver hilo_red), respetando los
+    limites de ntfy.sh: solo cuando cambia, o un latido cada INTERVALO_LATIDO_S."""
+    ultimo_det = None
+    ultima_publicacion = 0.0
     while True:
         try:
             linea = ser.readline().decode(errors="ignore").strip()
@@ -145,11 +166,19 @@ def hilo_lector(ser, id_maqueta):
         if not linea or linea == "PONG":
             continue
         datos = parsear_telemetria(linea)
-        if datos:
-            print(f"[ESP32 -> PC] {datos}")
-            enviar_a_internet(datos)
-            if "det" in datos:
-                publicar_conteo_local(id_maqueta, datos["det"])
+        if not datos:
+            continue
+        print(f"[ESP32 -> PC] {datos}")
+        enviar_a_internet(datos)
+        if "det" not in datos:
+            continue
+        ahora = time.monotonic()
+        cambio = datos["det"] != ultimo_det
+        latido = ahora - ultima_publicacion >= INTERVALO_LATIDO_S
+        if (cambio or latido) and ahora - ultima_publicacion >= INTERVALO_MIN_PUBLICACION_S:
+            publicar_conteo_local(id_maqueta, datos["det"])
+            ultimo_det = datos["det"]
+            ultima_publicacion = ahora
 
 
 def hilo_clima(ser):
@@ -160,7 +189,7 @@ def hilo_clima(ser):
         if lluvia_real is not None and lluvia_real != lluvia_actual:
             lluvia_actual = lluvia_real
             comando = f"LLUVIA={1 if lluvia_actual else 0}\n"
-            ser.write(comando.encode())
+            escribir(ser, comando)
             print(f"[PC -> ESP32] {comando.strip()} (clima real de internet)")
         time.sleep(INTERVALO_CLIMA_S)
 
@@ -170,16 +199,18 @@ def hilo_red(ser, id_maqueta):
 
     ntfy.sh permite "poll" (traer los mensajes nuevos desde un punto) en vez
     de mantener una conexion abierta, asi que basta con revisar cada
-    INTERVALO_RED_S segundos. Se seguimiento del id del ultimo mensaje visto
-    (mas confiable que un timestamp, que probamos y a veces no devuelve nada
-    en topicos recien creados) y se usa como "since" en la siguiente consulta,
-    para no reprocesar mensajes viejos en cada ciclo. La primera vez se pide
-    "since=all" solo para conocer el id mas reciente, sin actuar sobre el
-    historial completo. Cada linea de la respuesta es un JSON de ntfy con el
-    mensaje publicado (ver publicar_conteo_local) en el campo "message"; se
-    ignoran los mensajes publicados por esta misma maqueta.
+    INTERVALO_RED_S segundos. Se guarda el id del ultimo mensaje visto (mas
+    confiable que un timestamp, que probamos y a veces no devuelve nada en
+    topicos recien creados) y se usa como "since" en la siguiente consulta,
+    para no reprocesar mensajes viejos en cada ciclo. La primera consulta pide
+    "since=all" solo para conocer el id mas reciente: en esa pasada NO se
+    actua, porque el topico guarda 12 h de historial y reenviarlo al ESP32
+    seria darle un conteo de hace horas. Cada linea de la respuesta es un JSON
+    de ntfy con el mensaje publicado (ver publicar_conteo_local) en el campo
+    "message"; se ignoran los mensajes publicados por esta misma maqueta.
     """
     ultimo_id = "all"
+    arrancando = True
     while True:
         url = f"https://ntfy.sh/{TOPIC_RED}/json?poll=1&since={ultimo_id}"
         try:
@@ -193,14 +224,15 @@ def hilo_red(ser, id_maqueta):
                     except json.JSONDecodeError:
                         continue
                     ultimo_id = evento.get("id", ultimo_id)
-                    if ultimo_id == "all":
-                        continue  # bootstrap: no actuar sobre el historial completo
+                    if arrancando:
+                        continue  # solo aprender el ultimo id, sin actuar sobre el historial
                     mensaje = evento.get("message", "")
                     datos = parsear_telemetria(mensaje)
                     if datos.get("origen") and datos["origen"] != id_maqueta and "det" in datos:
                         comando = f"DET_REMOTO={datos['det']}\n"
-                        ser.write(comando.encode())
+                        escribir(ser, comando)
                         print(f"[PC -> ESP32] {comando.strip()} (otra maqueta, via internet)")
+            arrancando = False
         except urllib.error.URLError as e:
             print(f"[RED] no se pudo consultar ntfy.sh: {e}")
         time.sleep(INTERVALO_RED_S)
@@ -209,7 +241,7 @@ def hilo_red(ser, id_maqueta):
 def hilo_ping(ser):
     """Le avisa al ESP32 que el puente sigue vivo (se ve en el LCD)."""
     while True:
-        ser.write(b"PING\n")
+        escribir(ser, "PING\n")
         time.sleep(INTERVALO_PING_S)
 
 

@@ -83,6 +83,12 @@ bool lluvia = false; // llega por Serial desde puente_serial.py (clima real de i
 // solo por su propio trafico, sino por saber que la otra interseccion de la
 // ciudad esta congestionada, sin cablear las dos maquetas entre si. ---
 int detectadosRemoto = 0; // ultimo conteo (0-6) recibido de la otra maqueta
+// El puente de la otra maqueta republica su conteo al menos cada 2 min
+// (latido). Si en 5 min no llega nada, la otra maqueta o su puente se
+// apagaron: se descarta el conteo para no seguir extendiendo el verde por una
+// congestion que ya nadie confirma.
+unsigned long ultimoRemotoMs = 0;
+const unsigned long CADUCIDAD_REMOTO_MS = 300000;
 
 // --- Peticion peatonal: corta el verde actual si la via esta libre, o
 // espera hasta un maximo si hay trafico (nunca dejan al peaton sin cruzar) ---
@@ -151,6 +157,7 @@ void setup() {
 
 void loop() {
   leerComandosSerial();
+  caducarConteoRemoto();
   actualizarModoNocturno();
   if (modoNocturno) {
     actualizarParpadeoNocturno();
@@ -332,6 +339,13 @@ void procesarComando(String linea) {
     lluvia = false;
   } else if (linea.startsWith("DET_REMOTO=")) {
     detectadosRemoto = linea.substring(11).toInt();
+    ultimoRemotoMs = millis();
+  }
+}
+
+void caducarConteoRemoto() {
+  if (detectadosRemoto > 0 && millis() - ultimoRemotoMs > CADUCIDAD_REMOTO_MS) {
+    detectadosRemoto = 0;
   }
 }
 
