@@ -1,0 +1,84 @@
+name: nivel medio - modos por sensores y por serial
+version: 1
+steps:
+- name: arranca en fase A (S1 verde, S2 rojo) y en modo normal
+  wait-serial: modo=NORMAL fase=A
+- expect-pin:
+    part-id: esp
+    pin: '6'
+    value: 1
+- expect-pin:
+    part-id: esp
+    pin: '7'
+    value: 1
+- expect-pin:
+    part-id: esp
+    pin: '5'
+    value: 0
+- expect-pin:
+    part-id: esp
+    pin: '4'
+    value: 0
+- expect-pin:
+    part-id: esp
+    pin: '15'
+    value: 0
+- expect-pin:
+    part-id: esp
+    pin: '16'
+    value: 0
+- name: PING responde PONG
+  write-serial: 'PING
+
+    '
+- wait-serial: PONG
+- name: lluvia por serial
+  write-serial: 'LLUVIA=1
+
+    '
+- wait-serial: lluvia=1
+- name: congestion de la otra maqueta por serial
+  write-serial: 'DET_REMOTO=5
+
+    '
+- wait-serial: det_remoto=5
+- name: congestion local en via 1 (CNY1 y CNY2)
+  set-control:
+    part-id: btn5
+    control: pressed
+    value: 1
+- set-control:
+    part-id: btn6
+    control: pressed
+    value: 1
+- wait-serial: cny1=1 cny2=1
+- wait-serial: modo=CONG1+LLUVIA+RED
+- name: la siguiente A dura 5+3+2 = 10 s y el amarillo con lluvia 3 s
+  wait-serial: fase=A dur=10.00
+- wait-serial: fase=B dur=3.00
+- name: modo ECO al bajar el potenciometro de CO2
+  set-control:
+    part-id: CO2
+    control: position
+    value: 0.3
+- wait-serial: ECO+
+- wait-serial: fase=C dur=9.00
+- name: todo vuelve a normal
+  set-control:
+    part-id: btn5
+    control: pressed
+    value: 0
+- set-control:
+    part-id: btn6
+    control: pressed
+    value: 0
+- set-control:
+    part-id: CO2
+    control: position
+    value: 0.8
+- write-serial: 'LLUVIA=0
+
+    DET_REMOTO=0
+
+    '
+- wait-serial: modo=NORMAL

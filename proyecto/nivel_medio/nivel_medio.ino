@@ -156,10 +156,13 @@ void setup() {
 
   apagarSemaforos();
 
-  // Requiere compilar con CDCOnBoot=cdc (Serial = HWCDC, puerto USB nativo);
-  // con el UART clasico este metodo no existe. Evita que el loop se bloquee si
-  // el puerto USB esta abierto pero nadie lo lee.
+  // Placa fisica: compilar con CDCOnBoot=cdc (Serial = HWCDC, el USB nativo);
+  // setTxTimeoutMs(0) evita que el loop se bloquee si el puerto USB esta
+  // abierto pero nadie lo lee. Wokwi: compilar SIN esa opcion, porque su
+  // monitor serial esta en el UART0 y con cdc no se ve nada del sketch.
+#if ARDUINO_USB_CDC_ON_BOOT
   Serial.setTxTimeoutMs(0);
+#endif
   Serial.begin(115200);
   lcd.init();
   lcd.backlight();

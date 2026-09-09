@@ -76,12 +76,12 @@ ntfy.sh tiene límites por IP (60 peticiones de ráfaga, luego una cada 5 s, y 2
 ## Compilar y subir a una ESP32-S3 real
 
 ```bash
-arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/nivel_medio --export-binaries
-cp proyecto/nivel_medio/build/esp32.esp32.esp32s3/nivel_medio.ino.bin proyecto/nivel_medio/code.bin
-cp proyecto/nivel_medio/build/esp32.esp32.esp32s3/nivel_medio.ino.elf proyecto/nivel_medio/code.elf
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/nivel_medio
 arduino-cli upload -p <puerto> --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/nivel_medio
 ```
 
-**`CDCOnBoot=cdc` es obligatorio en hardware real** (validado subiendo el código a dos ESP32-S3 físicas): por defecto la placa deja el `Serial` del sketch en el UART clásico, no en el puerto USB nativo, así que sin esta opción el ESP32 arranca y corre bien, pero no se ve absolutamente nada por el puerto USB (ni telemetría ni respuesta a comandos) — parece "colgado" sin estarlo. Con el simulador Wokwi esto no aplica.
+**`CDCOnBoot=cdc` es obligatorio en hardware real** (validado subiendo el código a dos ESP32-S3 físicas): por defecto la placa deja el `Serial` del sketch en el UART clásico, no en el puerto USB nativo, así que sin esta opción el ESP32 arranca y corre bien, pero no se ve absolutamente nada por el puerto USB (ni telemetría ni respuesta a comandos) — parece "colgado" sin estarlo.
+
+**Y es exactamente al revés en Wokwi**: su monitor serial está en el UART0, así que el `code.bin` del repo se compila **sin** `CDCOnBoot` (comando en el README raíz). Un binario con `cdc` corre en Wokwi pero no muestra telemetría ni acepta comandos (verificado con `wokwi-cli`). No copiar el binario de la placa al simulador ni al revés.
 
 Requiere la librería `TimerMEF.h` y `LiquidCrystal_I2C` instaladas (ver [`docs/software/librerias.md`](../../docs/software/librerias.md) y [`docs/software/timer-mef.md`](../../docs/software/timer-mef.md)), igual que `nivel_bajo`. `TimerMEF.h` no está en el gestor de librerías de Arduino — copiar el contenido de [`docs/software/timer-mef.md`](../../docs/software/timer-mef.md) a `~/Documents/Arduino/libraries/TimerMEF/TimerMEF.h`.

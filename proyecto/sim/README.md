@@ -22,3 +22,17 @@ El tiempo que tarda el LCD por I2C (en el mock es instantáneo), el comportamien
 ## Agregar un escenario
 
 En `test_medio.cpp` (o `test_bajo.cpp`), un `else if (esc == "nombre")` con los helpers `runFor`, `runUntilPhase`, `measurePhase`, `enviar` y las macros `CHECK`/`CHECK_NEAR`, y el nombre en la lista de `run.sh`. Las entradas se fijan escribiendo `pin_level[...]` (digital) o `analog_value[...]` (ADC), y lo que el firmware escribe por `Serial` queda en `serial_out`.
+
+## Wokwi automatizado (`wokwi/`)
+
+Los mismos comportamientos, pero corriendo el binario real dentro del simulador Wokwi, sin abrir VS Code: `wokwi/run_wokwi.sh` usa [`wokwi-cli`](https://github.com/wokwi/wokwi-cli/releases) con guiones YAML que presionan botones, mueven potenciómetros, escriben en el serial y comprueban los GPIO de los LEDs y el texto de la telemetría. Necesita un token gratuito de wokwi.com/dashboard/ci en `WOKWI_CLI_TOKEN`.
+
+```bash
+WOKWI_CLI_TOKEN=wok_... proyecto/sim/wokwi/run_wokwi.sh
+```
+
+- `medio_modos.yaml`: arranque en fase A con las seis luces correctas, `PING`/`PONG`, `LLUVIA=1`, `DET_REMOTO=5`, congestión en vía 1 con dos CNY, la A siguiente dura 10 s y el amarillo 3 s, ECO al bajar el potenciómetro de CO2 (C dura 9 s), y vuelta a `NORMAL`.
+- `medio_nocturno_peaton.yaml`: peatón con vía libre y con tráfico, nocturno con solo amarillos, peatón que interrumpe el nocturno, reingreso a los 20 s, histéresis (una LDR en ~900 no saca del nocturno, en ~1230 sí).
+- `bajo.yaml`: ciclo A/B/C con los pines correctos y sensores que se reflejan en la telemetría sin alterar el ciclo.
+
+Los binarios que usa son los `code.bin` del repo, compilados sin `CDCOnBoot` (ver el README raíz). Las simulaciones van en serie: con dos a la vez el servidor cierra la conexión. El LCD no se puede capturar como imagen con esta API (sale en blanco aunque el bus I2C esté activo, comprobado con un analizador lógico: 46 mil transiciones de SDA en 3 s); para ver el LCD hay que abrir el diagrama en VS Code.

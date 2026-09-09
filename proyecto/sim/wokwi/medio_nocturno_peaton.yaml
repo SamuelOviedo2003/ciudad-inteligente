@@ -1,0 +1,100 @@
+name: nivel medio - peaton y modo nocturno
+version: 1
+steps:
+- name: peaton con via libre corta el verde de S1
+  wait-serial: fase=A
+- set-control:
+    part-id: P1
+    control: pressed
+    value: 1
+- wait-serial: peaton1_espera=1
+- wait-serial: fase=B
+- set-control:
+    part-id: P1
+    control: pressed
+    value: 0
+- name: peaton con trafico en via 1 (A=8 s) tambien termina cruzando
+  set-control:
+    part-id: btn5
+    control: pressed
+    value: 1
+- set-control:
+    part-id: btn6
+    control: pressed
+    value: 1
+- wait-serial: fase=A dur=8.00
+- set-control:
+    part-id: P1
+    control: pressed
+    value: 1
+- wait-serial: peaton1_espera=1
+- wait-serial: fase=B
+- set-control:
+    part-id: P1
+    control: pressed
+    value: 0
+- set-control:
+    part-id: btn5
+    control: pressed
+    value: 0
+- set-control:
+    part-id: btn6
+    control: pressed
+    value: 0
+- name: ambos LDR oscuros -> nocturno, solo amarillos
+  set-control:
+    part-id: LDR1
+    control: position
+    value: 0.1
+- set-control:
+    part-id: LDR2
+    control: position
+    value: 0.1
+- wait-serial: nocturno=1
+- delay: 600ms
+- expect-pin:
+    part-id: esp
+    pin: '5'
+    value: 0
+- expect-pin:
+    part-id: esp
+    pin: '6'
+    value: 0
+- expect-pin:
+    part-id: esp
+    pin: '7'
+    value: 0
+- expect-pin:
+    part-id: esp
+    pin: '16'
+    value: 0
+- delay: 1200ms
+- name: un peaton interrumpe el nocturno y S1 arranca en verde
+  set-control:
+    part-id: P1
+    control: pressed
+    value: 1
+- wait-serial: nocturno=0
+- set-control:
+    part-id: P1
+    control: pressed
+    value: 0
+- wait-serial: fase=A
+- expect-pin:
+    part-id: esp
+    pin: '6'
+    value: 1
+- name: sigue oscuro, asi que el nocturno vuelve tras la suspension de 20 s
+  wait-serial: nocturno=1
+- name: histeresis, una LDR en ~900 no saca del nocturno, en ~1230 si
+  set-control:
+    part-id: LDR1
+    control: position
+    value: 0.22
+- delay: 2500ms
+- wait-serial: nocturno=1
+- set-control:
+    part-id: LDR1
+    control: position
+    value: 0.3
+- wait-serial: nocturno=0

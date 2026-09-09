@@ -31,13 +31,24 @@ Cada carpeta en `proyecto/<nivel>/` trae `wokwi.toml`, `diagram.json`, `code.bin
 
 ## Cómo compilar un nivel nuevo
 
+Hay dos destinos y cada uno necesita su propia opción de compilación, porque en el ESP32-S3 el `Serial` del sketch puede ir al UART0 o al USB nativo:
+
+**Para Wokwi** (los `code.bin`/`code.elf` que están en el repo): sin `CDCOnBoot`. El monitor serial de Wokwi está conectado al UART0 (`esp:TX`/`esp:RX` en `diagram.json`); con `CDCOnBoot=cdc` el sketch corre pero no se ve ni una línea de telemetría ni acepta comandos (verificado con `wokwi-cli`: solo aparece el arranque de la ROM).
+
 ```bash
-arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/<nivel> --export-binaries
+arduino-cli compile --fqbn esp32:esp32:esp32s3 proyecto/<nivel> --export-binaries
 cp proyecto/<nivel>/build/esp32.esp32.esp32s3/<nivel>.ino.bin proyecto/<nivel>/code.bin
 cp proyecto/<nivel>/build/esp32.esp32.esp32s3/<nivel>.ino.elf proyecto/<nivel>/code.elf
 ```
 
-`CDCOnBoot=cdc` no es opcional: hace que `Serial` sea el puerto USB nativo (clase `HWCDC`), que es donde vive `Serial.setTxTimeoutMs()`. Sin esa opción `Serial` es el UART clásico y `nivel_bajo` ni siquiera compila (`'class HardwareSerial' has no member named 'setTxTimeoutMs'`, verificado con el core esp32 3.3.11). En la placa física además es lo que hace que la telemetría salga por el mismo USB con el que se programa.
+**Para la placa física**: con `CDCOnBoot=cdc`, que manda `Serial` por el mismo USB con el que se programa. Sin esa opción la placa corre pero no se ve nada en el puerto.
+
+```bash
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/<nivel>
+arduino-cli upload -p <puerto> --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/<nivel>
+```
+
+Los sketches usan `Serial.setTxTimeoutMs(0)` dentro de `#if ARDUINO_USB_CDC_ON_BOOT`, porque ese método solo existe en la clase `HWCDC` (USB) y no en `HardwareSerial` (UART); así el mismo código compila en las dos variantes (core esp32 3.3.11).
 
 Librerías necesarias en `~/Arduino/libraries/`: `LiquidCrystal I2C` (gestor de librerías) y `TimerMEF` (copiar el código de [`docs/software/timer-mef.md`](docs/software/timer-mef.md) a `TimerMEF/TimerMEF.h`).
 

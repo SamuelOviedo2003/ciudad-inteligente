@@ -91,7 +91,9 @@ void setup() {
 
   apagarSemaforos();
 
-  Serial.setTxTimeoutMs(0); // no bloquear el loop si nadie esta leyendo el USB CDC
+#if ARDUINO_USB_CDC_ON_BOOT // placa fisica (CDCOnBoot=cdc): no bloquear el loop si nadie lee el USB
+  Serial.setTxTimeoutMs(0);   // Wokwi: compilar sin cdc, su monitor esta en el UART0
+#endif
   Serial.begin(115200);
   lcd.init();
   lcd.backlight();

@@ -31,5 +31,5 @@ Nunca dos luces del mismo semáforo encendidas a la vez. Nunca ambos en verde a 
 ## Archivos
 
 - `nivel_bajo.ino` — código fuente
-- `code.bin`, `code.elf` — compilados para `esp32:esp32:esp32s3:CDCOnBoot=cdc` (sin `CDCOnBoot=cdc` no compila, ver el README raíz)
+- `code.bin`, `code.elf` — compilados para `esp32:esp32:esp32s3` sin `CDCOnBoot` (la variante para Wokwi; para la placa física ver el README raíz)
 - `diagram.json`, `wokwi.toml` — configuración del simulador
