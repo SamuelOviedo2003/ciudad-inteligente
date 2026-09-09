@@ -2,3 +2,4 @@
 proyecto/*/build/*
 !proyecto/*/build/.gitkeep
 __pycache__/
+proyecto/sim/build/
