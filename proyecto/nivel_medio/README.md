@@ -9,7 +9,7 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 | Duración de verde/amarillo | Fija siempre (5 s / 2 s) | Se recalcula al entrar a cada fase según sensores |
 | Sensores CNY (tráfico) | Solo se muestran en el LCD | Si hay ≥2 detectados en una vía, extienden su verde +3 s |
 | CO2 | Solo se muestra | Si supera el umbral, extiende el verde (modo ECO) para reducir frenadas/arrancadas |
-| LDR (luz ambiente) | Solo se muestra | Si ambos están oscuros, reemplaza el ciclo normal por parpadeo nocturno (ambos amarillos) |
+| LDR (luz ambiente) | Solo se muestra | Si ambos están oscuros, reemplaza el ciclo normal por parpadeo nocturno (ambos amarillos), salvo que un peatón esté pidiendo cruzar (ver prioridades abajo) |
 | Botón peatonal | Solo se muestra SI/NO | Corta el verde actual si la vía está libre, o espera hasta un máximo de 12 s si hay tráfico |
 | Comunicación | Ninguna | Serial con un script en el computador (`puente_serial.py`) que reenvía telemetría a internet y trae clima real que ajusta el amarillo |
 
@@ -36,6 +36,11 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 
 **LCD** — igual que en nivel bajo rota 5 pantallas cada 3 s (con refresco cada 0.3 s), pero ahora explica **por qué** se está comportando así: modo activo + fase + duración aplicada + si el puente con el computador está conectado (pantalla 0), estado del modo ECO (pantalla 1), estado del modo nocturno y sus umbrales (pantalla 2), congestión por vía (pantalla 3), y estado de los botones peatonales + clima recibido (pantalla 4). Si el modo nocturno está activo, el LCD lo muestra de inmediato sin esperar la rotación.
 
+## Notas de diseño importantes
+
+- **Polaridad de los sensores CNY**: en la maqueta van a tierra con pull-up, es decir que en reposo (nada detectado) leen HIGH y bajan a LOW cuando detectan un objeto. Todo el código de control usa `vehiculoDetectado(pin) = (digitalRead(pin) == LOW)`, nunca `digitalRead()` crudo — si se invirtiera, cualquier vía se vería "congestionada" todo el tiempo con solo dejar la maqueta quieta (nadie tocando los sensores = todos en HIGH = 3/3 "detectados"). En Wokwi, donde los CNY son botones, esto significa que **sostener presionado el botón = vehículo detectado**, igual que se documenta abajo.
+- **Prioridad entre modos**: no hay una máquina de modos formal (congestión, ECO y lluvia solo ajustan la duración dentro del ciclo normal, nunca colisionan entre sí porque cada vía calcula su propio bono al entrar a su fase). El único conflicto real es **peatonal vs. nocturno**: si no se resolviera explícitamente, un peatón que presiona el botón de noche quedaría ignorado, porque el modo nocturno reemplaza todo el ciclo normal (donde vive la lógica peatonal). La regla implementada es **peatonal > nocturno**: si se presiona P1 o P2 mientras está en modo nocturno, se interrumpe de inmediato, se retoma el ciclo normal en la fase A, y el modo nocturno queda suspendido 20 s (un ciclo completo) antes de poder volver a activarse, dándole tiempo al peatón de cruzar.
+
 **Puente serial (consola de `puente_serial.py`)**:
 ```
 [ESP32 -> PC] {'modo': 'NORMAL', 'fase': 'A', 'dur': 5.0, 'co2': 612, ...}
@@ -44,7 +49,7 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 
 ## Protocolo Serial (9600 baudios)
 
-- **ESP32 → PC**, cada 1 s, una línea de texto `clave=valor` separada por espacios (`modo=NORMAL fase=A dur=5.0 co2=612 ldr1=... cny1=... p1=... peaton1_espera=... lluvia=... nocturno=...`). `puente_serial.py` la convierte a JSON antes de reenviarla a internet.
+- **ESP32 → PC**, cada 1 s, una línea de texto `clave=valor` separada por espacios (`modo=NORMAL fase=A dur=5.0 co2=612 ldr1=... cny1=... p1=... peaton1_espera=... lluvia=... nocturno=...`). Los `cny1..cny6` ya vienen interpretados (`1` = vehículo detectado, `0` = libre), no el nivel eléctrico crudo. `puente_serial.py` convierte la línea completa a JSON antes de reenviarla a internet.
 - **PC → ESP32**: `PING` (responde `PONG`, usado solo para que el LCD muestre "PC: CONECTADO"), `LLUVIA=1` / `LLUVIA=0`.
 
 ## Archivos
