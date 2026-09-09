@@ -57,7 +57,14 @@ Timer tFase;
 double duracionFaseActual = T_VERDE_BASE;
 
 // --- Modos de operacion (SOM): cambian que setpoints se usan ---
+// Prioridad explicita entre modos: PEATONAL > NOCTURNO > (congestion/eco/lluvia,
+// que no son modos aparte, solo ajustan la duracion dentro del ciclo normal).
+// Sin esta regla, un peaton que presiona el boton de noche quedaba ignorado
+// porque el modo nocturno nunca llamaba a la logica peatonal.
 bool modoNocturno = false;
+bool nocturnoSuspendido = false; // true mientras se atiende a un peaton de noche
+Timer tSuspenderNocturno;
+const double SUSPENSION_NOCTURNO = 20; // seg: tiempo para un ciclo completo antes de reevaluar oscuridad
 bool lluvia = false; // llega por Serial desde puente_serial.py (clima real de internet)
 
 // --- Peticion peatonal: corta el verde actual si la via esta libre, o
@@ -116,6 +123,7 @@ void setup() {
   tAnuncio = 0;
   tRefresco = 0;
   tTelemetria = 0;
+  tSuspenderNocturno = 0;
   aplicarFase();
   mostrarAnuncio();
 }
@@ -144,8 +152,18 @@ void apagarSemaforos() {
   digitalWrite(LG2, LOW);
 }
 
-int contarVehiculos1() { return digitalRead(CNY1) + digitalRead(CNY2) + digitalRead(CNY3); }
-int contarVehiculos2() { return digitalRead(CNY4) + digitalRead(CNY5) + digitalRead(CNY6); }
+// CNY: en la maqueta van a tierra con pull-up, es decir que en reposo (nada
+// detectado) leen HIGH y solo bajan a LOW cuando detectan un objeto. Por eso
+// "detectado" se define como LOW, no HIGH (si se invirtiera, la via se veria
+// "congestionada" todo el tiempo con solo dejar la maqueta quieta).
+bool vehiculoDetectado(int pin) { return digitalRead(pin) == LOW; }
+
+int contarVehiculos1() {
+  return vehiculoDetectado(CNY1) + vehiculoDetectado(CNY2) + vehiculoDetectado(CNY3);
+}
+int contarVehiculos2() {
+  return vehiculoDetectado(CNY4) + vehiculoDetectado(CNY5) + vehiculoDetectado(CNY6);
+}
 
 void aplicarFase() {
   apagarSemaforos();
@@ -217,8 +235,27 @@ void gestionarPeaton2() {
 }
 
 // --- Modo nocturno: si ambos LDR estan oscuros, se reemplaza el ciclo de 4
-// fases por ambos amarillos parpadeando (como un semaforo real de madrugada) ---
+// fases por ambos amarillos parpadeando (como un semaforo real de madrugada).
+// Prioridad: un peaton pidiendo cruzar interrumpe el nocturno de inmediato
+// (si no, quedaria ignorado, ya que el nocturno no corre gestionarPeatonX). ---
 void actualizarModoNocturno() {
+  bool peatonPide = (digitalRead(P1) == LOW || digitalRead(P2) == LOW);
+  if (modoNocturno && peatonPide) {
+    modoNocturno = false;
+    nocturnoSuspendido = true;
+    tSuspenderNocturno = 0;
+    fase = FASE_A;
+    tFase = 0;
+    aplicarFase();
+    return;
+  }
+  if (nocturnoSuspendido) {
+    if (tSuspenderNocturno > SUSPENSION_NOCTURNO) {
+      nocturnoSuspendido = false; // ya se le dio un ciclo completo al peaton, se reevalua la oscuridad
+    } else {
+      return; // no reevaluar oscuridad todavia, dejar correr el ciclo normal
+    }
+  }
   bool oscuro = (analogRead(LDR1) < UMBRAL_OSCURIDAD) && (analogRead(LDR2) < UMBRAL_OSCURIDAD);
   if (oscuro && !modoNocturno) {
     modoNocturno = true;
@@ -289,12 +326,12 @@ void actualizarTelemetria() {
     Serial.print(" co2="); Serial.print((int)leerCO2ppm());
     Serial.print(" ldr1="); Serial.print(analogRead(LDR1));
     Serial.print(" ldr2="); Serial.print(analogRead(LDR2));
-    Serial.print(" cny1="); Serial.print(digitalRead(CNY1));
-    Serial.print(" cny2="); Serial.print(digitalRead(CNY2));
-    Serial.print(" cny3="); Serial.print(digitalRead(CNY3));
-    Serial.print(" cny4="); Serial.print(digitalRead(CNY4));
-    Serial.print(" cny5="); Serial.print(digitalRead(CNY5));
-    Serial.print(" cny6="); Serial.print(digitalRead(CNY6));
+    Serial.print(" cny1="); Serial.print(vehiculoDetectado(CNY1));
+    Serial.print(" cny2="); Serial.print(vehiculoDetectado(CNY2));
+    Serial.print(" cny3="); Serial.print(vehiculoDetectado(CNY3));
+    Serial.print(" cny4="); Serial.print(vehiculoDetectado(CNY4));
+    Serial.print(" cny5="); Serial.print(vehiculoDetectado(CNY5));
+    Serial.print(" cny6="); Serial.print(vehiculoDetectado(CNY6));
     Serial.print(" p1="); Serial.print(digitalRead(P1) == LOW ? 1 : 0);
     Serial.print(" p2="); Serial.print(digitalRead(P2) == LOW ? 1 : 0);
     Serial.print(" peaton1_espera="); Serial.print(peaton1Esperando ? 1 : 0);
