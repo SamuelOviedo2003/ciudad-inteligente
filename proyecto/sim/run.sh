@@ -8,8 +8,10 @@ export PYTHONDONTWRITEBYTECODE=1
 mkdir -p build
 python3 gen_prototypes.py ../nivel_medio/nivel_medio.ino > build/prototypes_medio.h
 python3 gen_prototypes.py ../nivel_bajo/nivel_bajo.ino | grep -v nombreFase > build/prototypes_bajo.h
+python3 gen_prototypes.py ../nivel_alto/nivel_alto.ino > build/prototypes_alto.h
 g++ -std=gnu++17 -Wall -Wno-unused-function -I. -Ibuild -I../nivel_medio -o build/sim_medio test_medio.cpp Arduino.cpp || exit 1
 g++ -std=gnu++17 -Wall -Wno-unused-function -I. -Ibuild -I../nivel_bajo -o build/sim_bajo test_bajo.cpp Arduino.cpp || exit 1
+g++ -std=gnu++17 -Wall -Wno-unused-function -I. -Ibuild -I../nivel_alto -o build/sim_alto test_alto.cpp Arduino.cpp || exit 1
 
 fallos=0
 for e in baseline cny_polaridad congestion congestion_midfase eco wokwi_value_80 nocturno nocturno_histeresis \
@@ -18,6 +20,9 @@ for e in baseline cny_polaridad congestion congestion_midfase eco wokwi_value_80
 done
 for e in baseline telemetria remoto lcd; do
   build/sim_bajo "$e" || fallos=$((fallos + 1))
+done
+for e in baseline tabla_inicial recompensa aprendizaje exploracion reglas_fijas telemetria_lcd; do
+  build/sim_alto "$e" || fallos=$((fallos + 1))
 done
 if command -v uv > /dev/null; then
   uv run --quiet --with pyserial python3 test_puente.py ../nivel_medio || fallos=$((fallos + 1))

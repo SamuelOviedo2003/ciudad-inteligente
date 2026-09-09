@@ -13,6 +13,7 @@ Necesita `g++` y `python3`; para las pruebas del puente, `pyserial` (el script u
 - **Invariantes en todos los escenarios**: nunca dos verdes a la vez, nunca dos luces del mismo semáforo (salvo en nocturno, donde solo hay amarillos).
 - **Nivel bajo**: ciclo A 5 s / B 2 s / C 5 s / D 2 s; los sensores y botones no alteran los tiempos; formato del JSON de telemetría; recepción del `det` de la otra maqueta.
 - **Nivel medio**: ciclo base; bonos de congestión, ECO, lluvia y conteo remoto aplicados al entrar a la fase; caducidad del conteo remoto; nocturno (parpadeo de 0.5 s, exige ambos LDR, histéresis ante ruido); peatón (verde mínimo, corte con vía libre, espera máxima con tráfico, memoria fuera de fase, botón sostenido, prioridad sobre el nocturno); `PING`/`PONG` y el indicador "PC: CONECTADO"; tope del buffer serial; que ningún texto del LCD pase de 20 columnas ni se use `lcd.clear()` en el refresco; y el valor inicial de los potenciómetros de `diagram.json` (0 a 1023, no porcentaje).
+- **Nivel alto**: tabla inicial (verde según cola propia, ajena y CO2), conteo de vehículos que pasan y recompensa, actualización Q-learning exacta, exploración ε-greedy, reglas fijas por encima del agente (lluvia, `DET_REMOTO`, peatón, nocturno), telemetría del agente y LCD.
 - **Puente** (`test_puente.py`): parseo de la telemetría, cuántas publicaciones hace a ntfy.sh por minuto, y que el arranque no reenvíe el historial del tema.
 
 ## Qué no cubre

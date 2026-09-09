@@ -29,7 +29,11 @@ extern int analog_value[64];
 extern std::deque<char> serial_in;
 extern std::string serial_out;
 extern std::function<void(int, int)> on_digital_write;
+extern long random_value;  // lo que devuelve random(max) (modulo max); determinista para los tests
 }  // namespace sim
+long random(long max);
+long random(long min, long max);
+void randomSeed(unsigned long);
 
 unsigned long millis();
 unsigned long micros();

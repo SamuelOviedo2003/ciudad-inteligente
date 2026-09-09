@@ -5,13 +5,14 @@ import re
 import sys
 
 KEYWORDS = {"if", "for", "while", "switch", "else", "return", "case", "do"}
-pat = re.compile(r"^([A-Za-z_][\w\s\*&:<>]*?)\s+\**([A-Za-z_]\w*)\s*\(([^;{}]*)\)\s*\{\s*$")
+# Acepta la llave de apertura sola al final de la linea o una funcion completa en una linea.
+pat = re.compile(r"^([A-Za-z_][\w\s\*&:<>]*?)\s+\**([A-Za-z_]\w*)\s*\(([^;{}]*)\)\s*\{(\s*|.*\}\s*)$")
 out = []
 for line in open(sys.argv[1], encoding="utf-8"):
     m = pat.match(line.rstrip("\n"))
     if not m:
         continue
-    ret, name, args = m.groups()
+    ret, name, args = m.groups()[:3]
     if name in KEYWORDS or ret.split()[0] in KEYWORDS:
         continue
     out.append(f"{ret} {name}({args});")

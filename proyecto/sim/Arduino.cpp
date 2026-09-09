@@ -8,7 +8,11 @@ int analog_value[64] = {0};
 std::deque<char> serial_in;
 std::string serial_out;
 std::function<void(int, int)> on_digital_write;
+long random_value = 500;
 }  // namespace sim
+long random(long max) { return max > 0 ? sim::random_value % max : 0; }
+long random(long min, long max) { return min + random(max - min); }
+void randomSeed(unsigned long) {}
 
 HWSerialMock Serial;
 
