@@ -169,8 +169,9 @@ void mostrarAnuncio() {
       break;
     }
     case 2: {
-      int detectados = digitalRead(CNY1) + digitalRead(CNY2) + digitalRead(CNY3) +
-                        digitalRead(CNY4) + digitalRead(CNY5) + digitalRead(CNY6);
+      // LOW = objeto detectado (los CNY van a tierra con pull-up), igual que en nivel_bajo.ino
+      int detectados = (digitalRead(CNY1) == LOW) + (digitalRead(CNY2) == LOW) + (digitalRead(CNY3) == LOW) +
+                       (digitalRead(CNY4) == LOW) + (digitalRead(CNY5) == LOW) + (digitalRead(CNY6) == LOW);
       lcd.setCursor(0, 0); lcd.print("VEHICULOS EN VIA");
       lcd.setCursor(0, 1); lcd.print("Detectados: "); lcd.print(detectados); lcd.print("/6");
       break;

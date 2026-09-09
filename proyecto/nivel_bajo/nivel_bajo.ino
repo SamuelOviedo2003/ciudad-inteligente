@@ -27,6 +27,13 @@
 #define LY2 15
 #define LG2 16
 
+// Nivel electrico de un boton peatonal presionado. En Wokwi los botones van a
+// tierra y el pin usa el pull-up interno (reposo = HIGH, presionado = LOW). El
+// codigo de pruebas del curso (esp_pruebas.ino) los lee como INPUT sin pull-up,
+// asi que en la maqueta fisica pueden estar cableados al reves: verificar con
+// ese sketch (muestra P1/P2 en el LCD) y ajustar solo esta constante.
+#define P_ACTIVO LOW
+
 // --- Calibracion CO2 (identica a esp_pruebas.ino) ---
 const float DC_GAIN = 8.5;
 const float ZERO_POINT_VOLTAGE = 0.265;
@@ -134,6 +141,8 @@ void actualizarSemaforo() {
   }
 }
 
+bool botonPresionado(int pin) { return digitalRead(pin) == P_ACTIVO; }
+
 // CNY1..CNY6: en reposo (sin objeto) quedan en HIGH; LOW = objeto blanco detectado
 int contarDetectadosLocal() {
   return (digitalRead(CNY1) == LOW) + (digitalRead(CNY2) == LOW) + (digitalRead(CNY3) == LOW) +
@@ -194,8 +203,8 @@ void mostrarAnuncio() {
     }
     case 3: { // P1, P2 (con INPUT_PULLUP: presionado = LOW/0, suelto = HIGH/1)
       lcd.setCursor(0, 0); lcd.print("BOTON PEATONAL");
-      lcd.setCursor(0, 1); lcd.print("P1:"); lcd.print(digitalRead(P1) == LOW ? "SI" : "NO");
-      lcd.setCursor(9, 1); lcd.print("P2:"); lcd.print(digitalRead(P2) == LOW ? "SI" : "NO");
+      lcd.setCursor(0, 1); lcd.print("P1:"); lcd.print(botonPresionado(P1) ? "SI" : "NO");
+      lcd.setCursor(9, 1); lcd.print("P2:"); lcd.print(botonPresionado(P2) ? "SI" : "NO");
       break;
     }
   }
@@ -240,9 +249,9 @@ void enviarTelemetria() {
   Serial.print("],\"det\":");
   Serial.print(contarDetectadosLocal());
   Serial.print(",\"p1\":");
-  Serial.print(digitalRead(P1) == LOW ? 1 : 0);
+  Serial.print(botonPresionado(P1) ? 1 : 0);
   Serial.print(",\"p2\":");
-  Serial.print(digitalRead(P2) == LOW ? 1 : 0);
+  Serial.print(botonPresionado(P2) ? 1 : 0);
   Serial.println("}");
 }
 

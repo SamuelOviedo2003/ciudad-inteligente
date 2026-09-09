@@ -1,3 +1,4 @@
 .DS_Store
 proyecto/*/build/*
 !proyecto/*/build/.gitkeep
+__pycache__/
