@@ -9,6 +9,7 @@ std::deque<char> serial_in;
 std::string serial_out;
 std::function<void(int, int)> on_digital_write;
 long random_value = 500;
+std::map<std::string, std::vector<uint8_t>> prefs;
 }  // namespace sim
 long random(long max) { return max > 0 ? sim::random_value % max : 0; }
 long random(long min, long max) { return min + random(max - min); }

@@ -34,8 +34,19 @@ Igual que nivel medio: abrir `diagram.json` con la extensión Wokwi (puerto RFC2
 - Sostener los tres CNY de una vía: esa vía elige 8 s; la otra, viendo tres esperando enfrente, elige 3 s.
 - Soltar un CNY durante el verde cuenta como un vehículo que pasó y sube la recompensa.
 - Pantalla 0 del LCD: `AGENTE VIA n #decisiones` / `cola x otra y [eco]` / los tres valores Q del estado actual / `verde Ns explota|explora r±`.
-- Telemetría: la de nivel medio más `nivel=alto s1= a1= explora1= r1= rtotal1= q1=a/b/c` (y lo mismo para la vía 2).
+- Telemetría: la de nivel medio más `nivel=alto nvs= eps= s1= a1= explora1= r1= rtotal1= q1=a/b/c` (y lo mismo para la vía 2). `nvs=1` significa que la tabla se cargó de la flash al arrancar.
 - Peatón, nocturno, lluvia y `DET_REMOTO` se comportan exactamente como en nivel medio.
+
+## Memoria de la experiencia y comandos para la demo
+
+La tabla Q se guarda en la memoria no volátil del ESP32 (NVS, vía `Preferences`) cada 10 decisiones, así que lo aprendido sobrevive a un reinicio o a desconectar la maqueta. Por el mismo serial del puente (o el monitor de Wokwi) se aceptan, además de `PING`, `LLUVIA=` y `DET_REMOTO=`:
+
+| Comando | Efecto |
+|---|---|
+| `Q_DUMP` | Vuelca la tabla: 64 líneas `Q via estado q3 q5 q8` y `Q fin` |
+| `Q_SAVE` | Guarda la tabla en flash ya; responde `Q_SAVE ok 768` (bytes escritos) |
+| `Q_RESET` | Borra la flash y vuelve a la tabla heurística; responde `Q_RESET ok` |
+| `EPSILON=0.5` | Cambia cuánto explora (0 a 1). Subirlo durante la demo hace visible el aprendizaje; con 0 solo explota lo aprendido |
 
 ## Archivos
 
@@ -43,4 +54,4 @@ Igual que nivel medio: abrir `diagram.json` con la extensión Wokwi (puerto RFC2
 - `code.bin`, `code.elf` — compilados sin `CDCOnBoot` (variante Wokwi; para la placa ver el README raíz)
 - `diagram.json`, `wokwi.toml` — mismo cableado que los otros niveles, puerto `4002`
 
-Pruebas: `proyecto/sim/run.sh` (escenarios `sim_alto`: tabla inicial, recompensa, actualización Q, exploración, reglas fijas por encima del agente, telemetría y LCD).
+Pruebas: `proyecto/sim/run.sh` (escenarios `sim_alto`: tabla inicial, recompensa, actualización Q, exploración, reglas fijas por encima del agente, memoria en flash y comandos, telemetría y LCD) y `proyecto/sim/wokwi/run_wokwi.sh` (guion `alto_agente.yaml` contra el simulador real, incluida la escritura de la tabla en la flash simulada).

@@ -10,6 +10,7 @@
 #include <string>
 #include <deque>
 #include <vector>
+#include <map>
 #include <functional>
 
 #define HIGH 1
@@ -30,6 +31,7 @@ extern std::deque<char> serial_in;
 extern std::string serial_out;
 extern std::function<void(int, int)> on_digital_write;
 extern long random_value;  // lo que devuelve random(max) (modulo max); determinista para los tests
+extern std::map<std::string, std::vector<uint8_t>> prefs;  // "flash" del mock de Preferences
 }  // namespace sim
 long random(long max);
 long random(long min, long max);
@@ -75,6 +77,7 @@ class String {
   int indexOf(const char* p) const { auto i = s.find(p); return i == std::string::npos ? -1 : (int)i; }
   String substring(unsigned int from) const { return from >= s.size() ? String() : String(s.substr(from)); }
   long toInt() const { return atol(s.c_str()); }
+  float toFloat() const { return (float)atof(s.c_str()); }
   void trim() {
     size_t a = s.find_first_not_of(" \t\r\n");
     size_t b = s.find_last_not_of(" \t\r\n");

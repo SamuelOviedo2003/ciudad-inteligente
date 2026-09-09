@@ -13,6 +13,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <math.h>
+#include <Preferences.h>
 #include "TimerMEF.h"
 
 // --- Pines (idénticos a nivel_bajo, misma maqueta) ---
@@ -78,7 +79,8 @@ const int NUM_ESTADOS = 32;
 float Q[2][NUM_ESTADOS][NUM_ACCIONES];
 const float ALPHA = 0.1;    // tasa de aprendizaje
 const float GAMMA = 0.8;    // cuanto pesa el futuro
-const float EPSILON = 0.1;  // probabilidad de explorar una accion distinta a la mejor
+const float EPSILON = 0.1;  // probabilidad de explorar una accion distinta a la mejor (valor inicial)
+float epsilon = EPSILON;    // ajustable en vivo con "EPSILON=<0..1>" por serial, util en la demo
 const float PESO_VERDE_VACIO = 0.3;
 const float PESO_COLA_OTRA = 0.4;
 
@@ -96,6 +98,15 @@ struct Agente {
   unsigned long ultimoMuestreoMs = 0;
 };
 Agente agente[2];
+
+// La tabla vive tambien en la memoria no volatil (NVS) del ESP32: lo aprendido
+// sobrevive a un reinicio o a un corte de energia. Se guarda cada
+// GUARDAR_CADA decisiones (no en cada una, para no desgastar la flash) y con
+// el comando serial "Q_SAVE"; "Q_RESET" la borra y vuelve a la heuristica.
+Preferences memoria;
+bool tablaDesdeFlash = false;
+int decisionesSinGuardar = 0;
+const int GUARDAR_CADA = 10;
 
 enum FaseSemaforo { FASE_A, FASE_B, FASE_C, FASE_D };
 FaseSemaforo fase = FASE_A;
@@ -170,6 +181,8 @@ void setup() {
   lcd.backlight();
 
   inicializarQ();
+  memoria.begin("ciudad", false);
+  cargarQ();
 
   tFase = 0;
   tAnuncio = 0;
@@ -216,6 +229,43 @@ void inicializarQ() {
   }
 }
 
+void cargarQ() {
+  if (memoria.getBytesLength("q") != sizeof(Q)) return; // no hay tabla guardada (o es de otra version)
+  memoria.getBytes("q", Q, sizeof(Q));
+  tablaDesdeFlash = true;
+}
+
+// Devuelve los bytes escritos (0 si la flash no acepto la escritura).
+size_t guardarQ() {
+  decisionesSinGuardar = 0;
+  return memoria.putBytes("q", Q, sizeof(Q));
+}
+
+void borrarQ() {
+  memoria.clear();
+  inicializarQ();
+  tablaDesdeFlash = false;
+  decisionesSinGuardar = 0;
+  for (int v = 0; v < 2; v++) {
+    agente[v].pendiente = false;
+    agente[v].recompensaTotal = 0;
+    agente[v].decisiones = 0;
+  }
+}
+
+// Vuelca la tabla completa por serial: una linea por (via, estado) con los
+// tres valores Q. Sirve para ver que aprendio y para exportar tabla_q.h.
+void volcarQ() {
+  for (int v = 0; v < 2; v++) {
+    for (int s = 0; s < NUM_ESTADOS; s++) {
+      Serial.print("Q "); Serial.print(v + 1); Serial.print(" "); Serial.print(s);
+      for (int a = 0; a < NUM_ACCIONES; a++) { Serial.print(" "); Serial.print(Q[v][s][a], 4); }
+      Serial.println();
+    }
+  }
+  Serial.println("Q fin");
+}
+
 int colaDeVia(int via) { return via == 0 ? contarVehiculos1() : contarVehiculos2(); }
 
 int observarEstado(int via) {
@@ -245,9 +295,10 @@ double decidirVerde(int via) {
     ag.pendiente = false;
   }
   ag.estado = estado;
-  ag.exploro = (random(1000) < (long)(EPSILON * 1000));
+  ag.exploro = (random(1000) < (long)(epsilon * 1000));
   ag.accion = ag.exploro ? (int)random(NUM_ACCIONES) : mejorAccion(via, estado);
   ag.decisiones++;
+  if (++decisionesSinGuardar >= GUARDAR_CADA) guardarQ();
   ag.pasaron = 0;
   ag.verdeVacio = 0;
   ag.ultimoMuestreoMs = millis();
@@ -422,7 +473,10 @@ float leerCO2ppm() {
 
 // =====================================================================
 // Puente serial con el computador (puente_serial.py)
-// PC -> ESP32: "PING", "LLUVIA=1/0", "DET_REMOTO=<n>" (igual que nivel medio)
+// PC -> ESP32: "PING", "LLUVIA=1/0", "DET_REMOTO=<n>" (igual que nivel medio) y,
+// nuevos en este nivel: "Q_DUMP" (volcar la tabla), "Q_SAVE" (guardarla en
+// flash ya), "Q_RESET" (borrarla y volver a la heuristica), "EPSILON=<0..1>"
+// (cuanto explora; subirlo en la demo hace visible el aprendizaje).
 // =====================================================================
 void leerComandosSerial() {
   while (Serial.available() > 0) {
@@ -450,6 +504,17 @@ void procesarComando(String linea) {
   } else if (linea.startsWith("DET_REMOTO=")) {
     detectadosRemoto = linea.substring(11).toInt();
     ultimoRemotoMs = millis();
+  } else if (linea == "Q_RESET") {
+    borrarQ();
+    Serial.println("Q_RESET ok");
+  } else if (linea == "Q_SAVE") {
+    size_t n = guardarQ();
+    Serial.print("Q_SAVE ok "); Serial.println((int)n); // 768 = tabla completa escrita en flash
+  } else if (linea == "Q_DUMP") {
+    volcarQ();
+  } else if (linea.startsWith("EPSILON=")) {
+    float e = linea.substring(8).toFloat();
+    epsilon = e < 0 ? 0 : (e > 1 ? 1 : e);
   }
 }
 
@@ -487,6 +552,8 @@ void actualizarTelemetria() {
     Serial.print(" peaton2_espera="); Serial.print(peaton2Pedido ? 1 : 0);
     Serial.print(" lluvia="); Serial.print(lluvia ? 1 : 0);
     Serial.print(" nocturno="); Serial.print(modoNocturno ? 1 : 0);
+    Serial.print(" nvs="); Serial.print(tablaDesdeFlash ? 1 : 0);
+    Serial.print(" eps="); Serial.print(epsilon);
     for (int v = 0; v < 2; v++) {
       Agente &ag = agente[v];
       Serial.print(" s"); Serial.print(v + 1); Serial.print("="); Serial.print(ag.estado);

@@ -35,5 +35,6 @@ WOKWI_CLI_TOKEN=wok_... proyecto/sim/wokwi/run_wokwi.sh
 - `medio_modos.yaml`: arranque en fase A con las seis luces correctas, `PING`/`PONG`, `LLUVIA=1`, `DET_REMOTO=5`, congestión en vía 1 con dos CNY, la A siguiente dura 10 s y el amarillo 3 s, ECO al bajar el potenciómetro de CO2 (C dura 9 s), y vuelta a `NORMAL`.
 - `medio_nocturno_peaton.yaml`: peatón con vía libre y con tráfico, nocturno con solo amarillos, peatón que interrumpe el nocturno, reingreso a los 20 s, histéresis (una LDR en ~900 no saca del nocturno, en ~1230 sí).
 - `bajo.yaml`: ciclo A/B/C con los pines correctos y sensores que se reflejan en la telemetría sin alterar el ciclo.
+- `alto_agente.yaml`: el agente elige 8 s con la vía llena y 3 s enfrente, un CNY que se suelta cuenta como vehículo, `Q_SAVE` escribe 768 bytes en la flash simulada, `Q_DUMP` vuelca 64 estados, `EPSILON=1` fuerza exploración, `Q_RESET` responde.
 
 Los binarios que usa son los `code.bin` del repo, compilados sin `CDCOnBoot` (ver el README raíz). Las simulaciones van en serie: con dos a la vez el servidor cierra la conexión. El LCD no se puede capturar como imagen con esta API (sale en blanco aunque el bus I2C esté activo, comprobado con un analizador lógico: 46 mil transiciones de SDA en 3 s); para ver el LCD hay que abrir el diagrama en VS Code.

@@ -21,5 +21,6 @@ correr() {
 correr nivel_medio medio_modos 150000
 correr nivel_medio medio_nocturno_peaton 150000
 correr nivel_bajo bajo 60000
+correr nivel_alto alto_agente 120000
 echo; echo "Guiones fallidos: $fallos"
 [ "$fallos" -eq 0 ]

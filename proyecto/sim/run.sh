@@ -21,7 +21,7 @@ done
 for e in baseline telemetria remoto lcd; do
   build/sim_bajo "$e" || fallos=$((fallos + 1))
 done
-for e in baseline tabla_inicial recompensa aprendizaje exploracion reglas_fijas telemetria_lcd; do
+for e in baseline tabla_inicial recompensa aprendizaje exploracion reglas_fijas memoria telemetria_lcd; do
   build/sim_alto "$e" || fallos=$((fallos + 1))
 done
 if command -v uv > /dev/null; then

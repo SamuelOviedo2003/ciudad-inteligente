@@ -125,13 +125,39 @@ int main(int argc, char** argv) {
     analog_value[LDR1] = 3282; analog_value[LDR2] = 3282; tick();
     CHECK(!modoNocturno && faseLuces() == 'A', "sale del nocturno a fase A");
     CHECK(violaciones == 0, "sin violaciones de luces");
+  } else if (esc == "memoria") {
+    setup(); tick();
+    CHECK(!tablaDesdeFlash && sim::prefs.count("q") == 0, "sin nada en flash arranca con la tabla heuristica");
+    for (int i = 0; i < 6; i++) { runUntilPhase('A'); measurePhase(); }  // 12 decisiones -> se guardo sola a las 10
+    CHECK(sim::prefs.count("q") == 1 && sim::prefs["q"].size() == sizeof(Q), "tras 10 decisiones la tabla se guardo en flash (768 bytes)");
+    float aprendido = Q[0][0][0];
+    CHECK(aprendido < -0.05, "el valor guardado ya refleja aprendizaje");
+    enviar("Q_SAVE\n"); tick();
+    inicializarQ();                        // simula el reinicio: la RAM vuelve a la heuristica...
+    CHECK_NEAR(Q[0][0][0], 0, 0.0001, "(RAM reiniciada a la heuristica)");
+    cargarQ();                             // ...y setup() la recupera de la flash
+    CHECK_NEAR(Q[0][0][0], aprendido, 0.0001, "cargarQ() recupera lo aprendido: la experiencia sobrevive al reinicio");
+    CHECK(tablaDesdeFlash, "y lo reporta (nvs=1)");
+    serial_out.clear(); enviar("Q_RESET\n"); tick();
+    CHECK(sim::prefs.count("q") == 0 && fabs(Q[0][0][0]) < 0.0001 && !tablaDesdeFlash, "Q_RESET borra la flash y vuelve a la heuristica");
+    CHECK(serial_out.find("Q_RESET ok") != std::string::npos, "Q_RESET responde");
+    serial_out.clear(); enviar("Q_DUMP\n"); tick();
+    int lineas = 0; size_t pos = 0; while ((pos = serial_out.find("\nQ ", pos)) != std::string::npos) { lineas++; pos++; }
+    CHECK(lineas == 64 && serial_out.find("Q fin") != std::string::npos, "Q_DUMP vuelca 2 vias x 32 estados y termina en 'Q fin'");
+    enviar("EPSILON=1\n"); tick();
+    int exploraciones = 0;
+    for (int i = 0; i < 5; i++) { runUntilPhase('A'); tick(); exploraciones += agente[0].exploro; measurePhase(); }
+    CHECK(exploraciones == 5, "con EPSILON=1 todas las decisiones exploran");
+    enviar("EPSILON=0\n"); tick();
+    runUntilPhase('A'); tick(); measurePhase(); runUntilPhase('A'); tick();
+    CHECK(!agente[0].exploro, "con EPSILON=0 nunca explora");
   } else if (esc == "telemetria_lcd") {
     pin_level[CNY1] = LOW; pin_level[CNY4] = LOW; pin_level[CNY5] = LOW;
     setup(); tick(); runFor(20);
     size_t p = serial_out.find("nivel=alto"); size_t e = serial_out.find("\r\n", p);
     std::string linea = serial_out.substr(p, e - p);
     printf("  %s\n", linea.c_str());
-    for (const char* k : {"nivel=alto", "modo=", "fase=", "dur=", "det=", "s1=", "a1=", "explora1=", "r1=", "rtotal1=", "q1=", "s2=", "q2="}) {
+    for (const char* k : {"nivel=alto", "modo=", "fase=", "dur=", "det=", "s1=", "a1=", "explora1=", "r1=", "rtotal1=", "q1=", "s2=", "q2=", "nvs=0", "eps=0.10"}) {
       char msg[64]; snprintf(msg, sizeof msg, "telemetria contiene %s", k);
       CHECK(linea.find(k) != std::string::npos, msg);
     }

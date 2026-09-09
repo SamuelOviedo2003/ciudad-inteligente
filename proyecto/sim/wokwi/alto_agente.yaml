@@ -1,0 +1,34 @@
+name: nivel alto - agente, memoria en flash y comandos
+version: 1
+steps:
+- name: arranca sin tabla en flash y decidiendo
+  wait-serial: "nivel=alto"
+- wait-serial: "nvs=0"
+- expect-pin: {part-id: esp, pin: "6", value: 1}
+- expect-pin: {part-id: esp, pin: "7", value: 1}
+- name: via 1 llena -> el agente elige el verde largo (8 s)
+  set-control: {part-id: btn5, control: pressed, value: 1}
+- set-control: {part-id: btn6, control: pressed, value: 1}
+- set-control: {part-id: btn3, control: pressed, value: 1}
+- wait-serial: "s1=3 a1=8"
+- name: la via 2, con tres esperando enfrente, elige el verde corto (3 s)
+  wait-serial: "s2=12 a2=3"
+- name: soltar un CNY durante el verde de la via 1 cuenta como vehiculo que paso
+  wait-serial: "fase=A"
+- set-control: {part-id: btn5, control: pressed, value: 0}
+- wait-serial: "fase=B"
+- set-control: {part-id: btn6, control: pressed, value: 0}
+- set-control: {part-id: btn3, control: pressed, value: 0}
+- name: la tabla se guarda en flash y se puede volcar
+  write-serial: "Q_SAVE\n"
+- wait-serial: "Q_SAVE ok 768"
+- write-serial: "Q_DUMP\n"
+- wait-serial: "Q 2 31 "
+- wait-serial: "Q fin"
+- name: exploracion al maximo por serial
+  write-serial: "EPSILON=1\n"
+- wait-serial: "eps=1.00"
+- wait-serial: "explora1=1"
+- name: reset de la tabla
+  write-serial: "Q_RESET\n"
+- wait-serial: "Q_RESET ok"
