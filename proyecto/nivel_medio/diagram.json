@@ -170,21 +170,27 @@
             "id": "LDR1",
             "top": -116.5,
             "left": 681.4,
-            "attrs": {}
+            "attrs": {
+                "value": "80"
+            }
         },
         {
             "type": "wokwi-potentiometer",
             "id": "LDR2",
             "top": 104.3,
             "left": 681.4,
-            "attrs": {}
+            "attrs": {
+                "value": "80"
+            }
         },
         {
             "type": "wokwi-potentiometer",
             "id": "CO2",
             "top": 315.5,
             "left": 681.4,
-            "attrs": {}
+            "attrs": {
+                "value": "80"
+            }
         },
         {
             "type": "wokwi-vcc",

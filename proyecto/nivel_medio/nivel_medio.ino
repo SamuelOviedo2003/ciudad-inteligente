@@ -31,6 +31,13 @@
 #define LY2 15
 #define LG2 16
 
+// Nivel electrico que un CNY reporta cuando SI detecta un vehiculo. En el
+// diagrama de Wokwi los CNY van a tierra con pull-up (reposo = HIGH, al
+// "presionar"/detectar bajan a LOW) -> aqui va LOW. Al pasar a la maqueta
+// fisica, verificar que nivel entrega el modulo CNY70 real al detectar un
+// objeto y ajustar unicamente esta constante si hace falta.
+#define CNY_ACTIVO LOW
+
 // --- Calibracion CO2 (identica a nivel_bajo) ---
 const float DC_GAIN = 8.5;
 const float ZERO_POINT_VOLTAGE = 0.265;
@@ -156,7 +163,7 @@ void apagarSemaforos() {
 // detectado) leen HIGH y solo bajan a LOW cuando detectan un objeto. Por eso
 // "detectado" se define como LOW, no HIGH (si se invirtiera, la via se veria
 // "congestionada" todo el tiempo con solo dejar la maqueta quieta).
-bool vehiculoDetectado(int pin) { return digitalRead(pin) == LOW; }
+bool vehiculoDetectado(int pin) { return digitalRead(pin) == CNY_ACTIVO; }
 
 int contarVehiculos1() {
   return vehiculoDetectado(CNY1) + vehiculoDetectado(CNY2) + vehiculoDetectado(CNY3);

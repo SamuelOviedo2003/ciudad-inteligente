@@ -15,7 +15,7 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 
 ## Cómo correrlo
 
-1. Abrir `diagram.json` en VS Code (extensión Wokwi) → *Start Simulation*. Usa el mismo cableado que `nivel_bajo` (misma maqueta), en el puerto RFC2217 `4001` (distinto al de nivel bajo, `4000`, para poder tener ambos simuladores abiertos a la vez en la demo comparativa).
+1. Abrir `diagram.json` en VS Code (extensión Wokwi) → *Start Simulation*. Usa el mismo cableado que `nivel_bajo` (misma maqueta), en el puerto RFC2217 `4001` (distinto al de nivel bajo, `4000`, para poder tener ambos simuladores abiertos a la vez en la demo comparativa). Los potenciómetros de LDR1, LDR2 y CO2 ya vienen con un valor inicial alto (80%) puesto en `diagram.json` para arrancar en modo normal (de día, sin ECO) — si tu versión de Wokwi los ignora y arrancan en 0, **subir los tres antes de hacer nada más**, o el sistema arranca directo en modo nocturno (el semáforo nunca muestra verde, solo parpadea amarillo) y en modo ECO.
 2. En una terminal aparte:
    ```bash
    cd proyecto/nivel_medio
@@ -29,7 +29,7 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 **Semáforos** — mismo ciclo de 4 fases de nivel bajo (A/B/C/D), pero la duración de cada una cambia según el contexto en el momento de entrar a esa fase:
 
 - **Congestión**: mantener presionado (clic sostenido en Wokwi) 2 o 3 sensores CNY de una vía antes de que empiece su verde → esa fase dura 3 s más.
-- **Modo ECO**: subir el potenciómetro de CO2 por encima del umbral (ver `UMBRAL_CO2_ECO` en el código) → el verde de ambas vías se extiende.
+- **Modo ECO**: **bajar** el potenciómetro de CO2 (la fórmula del sensor da más ppm mientras más bajo está el potenciómetro, es contraintuitivo) hasta que supere `UMBRAL_CO2_ECO` en el código → el verde de ambas vías se extiende. Con el potenciómetro alto (valor por defecto) da -1 (fuera de rango) y ECO queda apagado.
 - **Modo nocturno**: bajar ambos potenciómetros de LDR por debajo del umbral (`UMBRAL_OSCURIDAD`) → los semáforos dejan de ciclar y ambos amarillos parpadean cada 0.5 s, hasta que vuelva a haber luz.
 - **Petición peatonal**: presionar P1 mientras S1 está en verde. Si la vía 1 no tiene autos detectados, el verde se corta de inmediato. Si hay autos, el LCD muestra "(esperando)" y el sistema garantiza el corte a más tardar en 12 s, haya o no tráfico.
 - **Lluvia (dato de internet)**: cuando `puente_serial.py` consulta el clima real y detecta precipitación en la ubicación configurada, manda `LLUVIA=1` por serial → el amarillo se extiende 1 s en ambas vías. Para probarlo sin depender del clima real del día, se puede simular escribiendo manualmente en el monitor serial del simulador: `LLUVIA=1` (o `LLUVIA=0` para desactivarlo).
@@ -38,7 +38,7 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 
 ## Notas de diseño importantes
 
-- **Polaridad de los sensores CNY**: en la maqueta van a tierra con pull-up, es decir que en reposo (nada detectado) leen HIGH y bajan a LOW cuando detectan un objeto. Todo el código de control usa `vehiculoDetectado(pin) = (digitalRead(pin) == LOW)`, nunca `digitalRead()` crudo — si se invirtiera, cualquier vía se vería "congestionada" todo el tiempo con solo dejar la maqueta quieta (nadie tocando los sensores = todos en HIGH = 3/3 "detectados"). En Wokwi, donde los CNY son botones, esto significa que **sostener presionado el botón = vehículo detectado**, igual que se documenta abajo.
+- **Polaridad de los sensores CNY**: en el diagrama de Wokwi van a tierra con pull-up, es decir que en reposo (nada detectado) leen HIGH y bajan a LOW cuando detectan un objeto (verificado siguiendo el cableado en `diagram.json`). Todo el código de control usa `vehiculoDetectado(pin) = (digitalRead(pin) == CNY_ACTIVO)`, nunca `digitalRead()` crudo, con `CNY_ACTIVO` como una sola constante al inicio de `nivel_medio.ino` — si se invirtiera, cualquier vía se vería "congestionada" todo el tiempo con solo dejar la maqueta quieta (nadie tocando los sensores = todos en HIGH = 3/3 "detectados"). En Wokwi esto significa que **sostener presionado el botón = vehículo detectado**. **Al pasar a la maqueta física, verificar qué nivel entrega el módulo CNY70 real al detectar un objeto y, si es distinto, cambiar únicamente `#define CNY_ACTIVO`** (una sola línea, no hay que tocar la lógica de control).
 - **Prioridad entre modos**: no hay una máquina de modos formal (congestión, ECO y lluvia solo ajustan la duración dentro del ciclo normal, nunca colisionan entre sí porque cada vía calcula su propio bono al entrar a su fase). El único conflicto real es **peatonal vs. nocturno**: si no se resolviera explícitamente, un peatón que presiona el botón de noche quedaría ignorado, porque el modo nocturno reemplaza todo el ciclo normal (donde vive la lógica peatonal). La regla implementada es **peatonal > nocturno**: si se presiona P1 o P2 mientras está en modo nocturno, se interrumpe de inmediato, se retoma el ciclo normal en la fase A, y el modo nocturno queda suspendido 20 s (un ciclo completo) antes de poder volver a activarse, dándole tiempo al peatón de cruzar.
 
 **Puente serial (consola de `puente_serial.py`)**:
