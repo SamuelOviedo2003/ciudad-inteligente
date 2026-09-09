@@ -32,10 +32,14 @@ Cada carpeta en `proyecto/<nivel>/` trae `wokwi.toml`, `diagram.json`, `code.bin
 ## Cómo compilar un nivel nuevo
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32s3 proyecto/<nivel> --export-binaries
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/<nivel> --export-binaries
 cp proyecto/<nivel>/build/esp32.esp32.esp32s3/<nivel>.ino.bin proyecto/<nivel>/code.bin
 cp proyecto/<nivel>/build/esp32.esp32.esp32s3/<nivel>.ino.elf proyecto/<nivel>/code.elf
 ```
+
+`CDCOnBoot=cdc` no es opcional: hace que `Serial` sea el puerto USB nativo (clase `HWCDC`), que es donde vive `Serial.setTxTimeoutMs()`. Sin esa opción `Serial` es el UART clásico y `nivel_bajo` ni siquiera compila (`'class HardwareSerial' has no member named 'setTxTimeoutMs'`, verificado con el core esp32 3.3.11). En la placa física además es lo que hace que la telemetría salga por el mismo USB con el que se programa.
+
+Librerías necesarias en `~/Arduino/libraries/`: `LiquidCrystal I2C` (gestor de librerías) y `TimerMEF` (copiar el código de [`docs/software/timer-mef.md`](docs/software/timer-mef.md) a `TimerMEF/TimerMEF.h`).
 
 ## Rúbrica de la entrega
 

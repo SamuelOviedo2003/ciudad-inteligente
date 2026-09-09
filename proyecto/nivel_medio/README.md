@@ -18,7 +18,7 @@ A diferencia de `nivel_bajo` (donde las dos maquetas físicas se conectan direct
 
 ## Cómo correrlo
 
-1. Abrir `diagram.json` en VS Code (extensión Wokwi) → *Start Simulation*. Usa el mismo cableado que `nivel_bajo` (misma maqueta), en el puerto RFC2217 `4001` (distinto al de nivel bajo, `4000`, para poder tener ambos simuladores abiertos a la vez en la demo comparativa). Los potenciómetros de LDR1, LDR2 y CO2 ya vienen con un valor inicial alto (80%) puesto en `diagram.json` para arrancar en modo normal (de día, sin ECO) — si tu versión de Wokwi los ignora y arrancan en 0, **subir los tres antes de hacer nada más**, o el sistema arranca directo en modo nocturno (el semáforo nunca muestra verde, solo parpadea amarillo) y en modo ECO.
+1. Abrir `diagram.json` en VS Code (extensión Wokwi) → *Start Simulation*. Usa el mismo cableado que `nivel_bajo` (misma maqueta), en el puerto RFC2217 `4001` (distinto al de nivel bajo, `4000`, para poder tener ambos simuladores abiertos a la vez en la demo comparativa). Los potenciómetros de LDR1, LDR2 y CO2 vienen con `"value": "820"` en `diagram.json` (el atributo va de 0 a 1023 según la documentación de Wokwi, así que 820 es ~80 %; una versión anterior tenía `80`, que es un 8 % y dejaba el sistema arrancando en nocturno y ECO). Si igual arrancan abajo, **subir los tres antes de hacer nada más**, o el sistema arranca directo en modo nocturno (el semáforo nunca muestra verde, solo parpadea amarillo) y en modo ECO.
 2. En una terminal aparte:
    ```bash
    cd proyecto/nivel_medio
