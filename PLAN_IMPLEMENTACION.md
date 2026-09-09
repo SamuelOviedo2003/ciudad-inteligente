@@ -94,13 +94,14 @@ Esto se implementa como **Serial + PC**, no WiFi directo del ESP32 (que sería t
 
 ### 3.4 Entregable de nivel medio
 
-**Estado: código escrito, sin compilar ni probar todavía** (el canal de internet↔internet con ntfy.sh sí se probó de forma aislada, fuera del ESP32 — el publish/poll funciona).
+**Estado: compilado y subido a dos ESP32-S3 físicas, corriendo y emitiendo telemetría en vivo.** El canal de internet↔internet con ntfy.sh se probó de forma aislada, fuera del ESP32 — el publish/poll funciona. Falta correr `puente_serial.py` en las dos maquetas a la vez durante una demo real para confirmar `DET_REMOTO` de punta a punta, y probar en vivo cada modo (congestión, nocturno, peatonal, lluvia) con las manos sobre la maqueta física.
 
 - [x] `proyecto/nivel_medio/nivel_medio.ino` — MEF con SOM (congestión, ECO, nocturno, peatonal, lluvia, congestión de la otra maqueta) + protocolo Serial de la sección 3.3
 - [x] `proyecto/nivel_medio/puente_serial.py` — puente Serial↔Internet (Open-Meteo + telemetría + coordinación con la otra maqueta vía ntfy.sh)
 - [x] `proyecto/nivel_medio/README.md` — modos, cómo correr el puente (incluyendo con dos maquetas), protocolo Serial documentado
 - [x] `proyecto/nivel_medio/diagram.json` / `wokwi.toml` — mismo cableado de `nivel_bajo`, puerto RFC2217 `4001` (distinto al `4000` de nivel bajo, para poder tener ambos simuladores abiertos a la vez en la demo comparativa)
-- [ ] **Pendiente**: compilar con `arduino-cli` (no disponible en el entorno donde se escribió el código — hay que hacerlo localmente, comando en el README del proyecto), correr en Wokwi junto con `puente_serial.py` y confirmar que todos los modos (incluyendo la coordinación entre maquetas) se disparan como se documentó aquí y en el README
+- [x] Compilado con `arduino-cli` y subido a dos ESP32-S3 reales (ver corrección 5 abajo); `code.bin`/`code.elf` en el repo corresponden a este build
+- [ ] **Pendiente**: correr `puente_serial.py` en las dos maquetas simultáneamente y confirmar `DET_REMOTO` de punta a punta; probar cada modo con las manos sobre el hardware real (no solo telemetría pasiva)
 
 ### 3.5 Correcciones tras revisión de código (importante)
 
@@ -113,6 +114,11 @@ Una prueba real en Wokwi (el semáforo nunca mostraba verde, los botones no pare
 
 3. **Los potenciómetros de LDR1/LDR2/CO2 arrancan en 0 en Wokwi**, y con los umbrales del código eso dispara el modo nocturno **y** el modo ECO desde el primer instante de la simulación — el semáforo se queda parpadeando en amarillo para siempre (nunca llega a mostrar verde) hasta que alguien suba manualmente los tres potenciómetros. Esto explica el síntoma exacto de esa prueba: no es que el botón peatonal no funcione, es que el sistema arranca atascado en modo nocturno y ahí la lógica peatonal solo interviene a través de la regla de prioridad del punto 2 (que sí funciona, pero es fácil no notarla si no se sabe que está ahí). Se corrigió fijando un valor inicial del 80% en los tres potenciómetros en `proyecto/nivel_medio/diagram.json`, y documentando en el README que hay que subirlos manualmente si la versión de Wokwi de cada quien no respeta ese atributo. De paso se corrigió una instrucción del README que estaba al revés: por la fórmula del sensor, el modo ECO se activa **bajando** el potenciómetro de CO2, no subiéndolo.
 4. **Constante de calibración explícita para la polaridad CNY.** Se agregó `#define CNY_ACTIVO LOW` al inicio de `nivel_medio.ino`, usada por `vehiculoDetectado()` en vez de un `LOW` implícito — así, al pasar a la maqueta física, si el módulo CNY70 real entrega el nivel contrario, el ajuste es cambiar una sola constante en vez de tocar la lógica de control en varios lugares.
+
+Al compilar y subir el código a dos ESP32-S3 físicas se encontraron dos problemas más, específicos de hardware real (no aparecen en Wokwi):
+
+5. **`Serial.setTxTimeoutMs(0)` no existe en el core esp32 3.3.11.** Se había copiado del cambio que hizo el compañero en `nivel_bajo.ino`, asumiendo que compilaba igual aquí; con el core instalado en este entorno da error de compilación. Se quitó la línea (queda como comentario explicando qué hace si el core de quien compile sí la soporta).
+6. **El Serial del sketch no aparecía por el puerto USB en las placas físicas** (el sketch corría bien — se pudo confirmar por los mensajes de arranque de la ROM — pero no se veía nada de la telemetría propia). Causa: en ESP32-S3, la opción de compilación `CDC On Boot` viene **deshabilitada por defecto**, así que `Serial` queda mapeado al UART clásico en vez del puerto USB nativo por el que se programa la placa. Se corrigió compilando con `--fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc"` (documentado en el README) — confirmado con las dos placas emitiendo telemetría en vivo tras el cambio. Esto no afecta al simulador Wokwi (`nivel_bajo` incluido), donde el `Serial` siempre se ve sin importar esta opción.
 
 ## 4. Nivel alto — propuesta ("de alguna manera")
 
@@ -160,7 +166,7 @@ Con esto se resuelve la sección "propuestas para llevar el sistema al nivel alt
 ## 6. Checklist frente a la rúbrica
 
 - [x] Nivel bajo implementado y usando todas las E/S (`proyecto/nivel_bajo/`)
-- [x] Nivel medio: código escrito y corregido (SOM + serial-internet, secciones 3.4–3.5) — `proyecto/nivel_medio/` — **falta compilar y probar en vivo**
+- [x] Nivel medio: código escrito, corregido, compilado y cargado en dos ESP32-S3 reales (SOM + serial-internet, secciones 3.4–3.5) — `proyecto/nivel_medio/` — **falta la prueba en vivo de `DET_REMOTO` entre las dos maquetas con `puente_serial.py` corriendo**
 - [ ] Nivel alto: tabla Q pre-entrenada offline + política ejecutándose en el ESP32 (sección 4.2) — `proyecto/nivel_alto/` (por crear)
 - [ ] Presentación con comparación de los 3 niveles
 - [ ] Propuestas concretas para llevar el sistema más allá del nivel alcanzado (sección 4.4 ya da el contenido)

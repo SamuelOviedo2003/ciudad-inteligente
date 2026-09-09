@@ -132,7 +132,9 @@ void setup() {
 
   apagarSemaforos();
 
-  Serial.setTxTimeoutMs(0); // no bloquear el loop si nadie esta leyendo el USB CDC (igual que nivel_bajo)
+  // Nota: setTxTimeoutMs() no existe en el core esp32 3.3.11 instalado aqui
+  // (si tu core lo soporta, agregar Serial.setTxTimeoutMs(0) antes del begin
+  // evita que el loop se bloquee si nadie esta leyendo el USB CDC).
   Serial.begin(115200);
   lcd.init();
   lcd.backlight();

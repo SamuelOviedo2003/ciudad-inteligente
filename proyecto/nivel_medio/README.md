@@ -70,12 +70,15 @@ A diferencia de `nivel_bajo` (donde las dos maquetas físicas se conectan direct
 - `puente_serial.py` — puente Serial ↔ Internet (telemetría, clima real, y coordinación con la otra maqueta vía ntfy.sh)
 - `diagram.json`, `wokwi.toml` — configuración del simulador (mismo cableado que `nivel_bajo`)
 
-## Compilar (produce `code.bin`/`code.elf`, no incluidos aún)
+## Compilar y subir a una ESP32-S3 real
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32s3 proyecto/nivel_medio --export-binaries
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/nivel_medio --export-binaries
 cp proyecto/nivel_medio/build/esp32.esp32.esp32s3/nivel_medio.ino.bin proyecto/nivel_medio/code.bin
 cp proyecto/nivel_medio/build/esp32.esp32.esp32s3/nivel_medio.ino.elf proyecto/nivel_medio/code.elf
+arduino-cli upload -p <puerto> --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/nivel_medio
 ```
 
-Requiere la librería `TimerMEF.h` y `LiquidCrystal_I2C` instaladas (ver [`docs/software/librerias.md`](../../docs/software/librerias.md) y [`docs/software/timer-mef.md`](../../docs/software/timer-mef.md)), igual que `nivel_bajo`. No se generaron binarios en este entorno porque no tiene `arduino-cli` ni el core de ESP32 instalados — compilar localmente antes de la demo.
+**`CDCOnBoot=cdc` es obligatorio en hardware real** (validado subiendo el código a dos ESP32-S3 físicas): por defecto la placa deja el `Serial` del sketch en el UART clásico, no en el puerto USB nativo, así que sin esta opción el ESP32 arranca y corre bien, pero no se ve absolutamente nada por el puerto USB (ni telemetría ni respuesta a comandos) — parece "colgado" sin estarlo. Con el simulador Wokwi esto no aplica.
+
+Requiere la librería `TimerMEF.h` y `LiquidCrystal_I2C` instaladas (ver [`docs/software/librerias.md`](../../docs/software/librerias.md) y [`docs/software/timer-mef.md`](../../docs/software/timer-mef.md)), igual que `nivel_bajo`. `TimerMEF.h` no está en el gestor de librerías de Arduino — copiar el contenido de [`docs/software/timer-mef.md`](../../docs/software/timer-mef.md) a `~/Documents/Arduino/libraries/TimerMEF/TimerMEF.h`.
