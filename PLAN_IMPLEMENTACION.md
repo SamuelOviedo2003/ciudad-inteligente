@@ -57,43 +57,50 @@ El LCD pasa de "anuncios rotativos" a mostrar el **modo de operación activo** y
 **Estado: implementado** en `proyecto/nivel_medio/nivel_medio.ino` + `proyecto/nivel_medio/puente_serial.py` (pendiente de compilar/probar en vivo, ver sección 3.4). Arquitectura realmente construida (inspirada en el patrón de `assets/code/wokwi/websocket-serial.py`, pero con protocolo propio en texto plano en vez de JSON sobre el cable, para no depender de una librería JSON en el ESP32):
 
 ```
-ESP32 (Serial USB, 9600 baud, texto plano línea a línea)
+ESP32 (Serial USB, 115200 baud, texto plano línea a línea)
    │  TX cada 1 s: "modo=CONGESTION fase=A dur=8.0 co2=612 ldr1=820 ldr2=750
-   │                cny1=1 cny2=1 cny3=0 cny4=0 cny5=1 cny6=0 p1=0 p2=1
-   │                peaton1_espera=0 peaton2_espera=1 lluvia=0 nocturno=0"
-   │  RX: "PING" (responde "PONG") / "LLUVIA=1" / "LLUVIA=0"
+   │                cny1=1 cny2=1 cny3=0 cny4=0 cny5=1 cny6=0 det=2 det_remoto=0
+   │                p1=0 p2=1 peaton1_espera=0 peaton2_espera=1 lluvia=0 nocturno=0"
+   │  RX: "PING" (responde "PONG") / "LLUVIA=1"/"LLUVIA=0" / "DET_REMOTO=<n>"
    ▼
 puente_serial.py  (en el computador, pyserial + solo librerías estándar de Python)
    │  hilo_lector():  parsea la telemetría "clave=valor" → dict → la reenvía
    │                  como JSON por POST a ENDPOINT_TELEMETRIA (configurable,
    │                  None por defecto para no golpear el requestcatcher de
-   │                  un tercero sin permiso)
+   │                  un tercero sin permiso) → y publica "det" en ntfy.sh
    │  hilo_clima():   cada 30 s consulta la API pública de Open-Meteo
    │                  (sin API key) para la ubicación configurada y, si
    │                  cambia el estado de lluvia, escribe "LLUVIA=1"/"LLUVIA=0"
+   │  hilo_red():     cada 5 s revisa el tema de ntfy.sh compartido con la
+   │                  OTRA maqueta; si publicó un conteo nuevo, escribe
+   │                  "DET_REMOTO=<n>"
    │  hilo_ping():    cada 2 s escribe "PING" para que el LCD muestre
    │                  "PC: CONECTADO" (auto-conciencia de conectividad)
    ▼
-Internet: Open-Meteo (`api.open-meteo.com/v1/forecast?...&current=precipitation`)
-          como fuente real de clima + endpoint propio opcional para telemetría
+Internet: Open-Meteo (clima real) + ntfy.sh (pub/sub gratis sin cuenta, canal
+          con la otra maqueta) + endpoint propio opcional para telemetría
 ```
 
 Qué información viaja en cada sentido (esto es lo que "amplifica la autoadaptabilidad", como pide la rúbrica):
 
-- **ESP32 → PC → internet**: telemetría (modo activo, fase, duración aplicada, CNY, CO2, LDR, botones, espera peatonal) que el puente convierte a JSON antes de reenviarla — mismo espíritu que `clase/sistemas-conectados.md` con Ubidots para la maqueta de clima, pero aplicado a la ciudad.
-- **Internet → PC → ESP32**: **clima real de la ubicación configurada** (lluvia, vía Open-Meteo) — un dato que el ESP32 no puede medir con sus propios sensores. Cuando el puente detecta lluvia, manda `LLUVIA=1` y `nivel_medio.ino` extiende `T_AMARILLO_BASE` en `BONUS_LLUVIA` (1 s) mientras dure. Esto es "auto-ajuste" + "conciencia del contexto" con una variable externa, justificando por qué hace falta el puente serial-internet y no basta con los sensores propios de la maqueta.
+- **ESP32 → PC → internet**: telemetría (modo activo, fase, duración aplicada, CNY, CO2, LDR, botones, espera peatonal, conteo local) que el puente convierte a JSON antes de reenviarla — mismo espíritu que `clase/sistemas-conectados.md` con Ubidots para la maqueta de clima, pero aplicado a la ciudad. El conteo local (`det`) también se publica en ntfy.sh para que lo vea la otra maqueta.
+- **Internet → PC → ESP32**, dos fuentes distintas de información que el ESP32 no puede obtener con sus propios sensores:
+  1. **Clima real** de la ubicación configurada (lluvia, vía Open-Meteo). Cuando el puente detecta lluvia, manda `LLUVIA=1` y `nivel_medio.ino` extiende `T_AMARILLO_BASE` en `BONUS_LLUVIA` (1 s) mientras dure.
+  2. **Estado de la otra maqueta de ciudad**, en cualquier computador con internet (no necesita cable ni estar en el mismo lugar — a diferencia de `proyecto/puente_serial/`, que conecta las dos maquetas directo por USB solo para nivel bajo). Vía un tema de ntfy.sh: si la otra maqueta reporta congestión alta (`UMBRAL_CONGESTION_RED`), el puente manda `DET_REMOTO=<n>` y `nivel_medio.ino` extiende el verde en `BONUS_RED` (2 s), como si las dos intersecciones de la ciudad coordinaran su tráfico entre sí.
+
+Esto es "auto-ajuste" + "conciencia del contexto" con variables externas, justificando por qué hace falta el puente serial-internet y no basta con los sensores propios de la maqueta ni con el puente USB directo de nivel bajo.
 
 Esto se implementa como **Serial + PC**, no WiFi directo del ESP32 (que sería trivialmente igual al nivel bajo con más pasos) — es la diferencia que la rúbrica pide explícitamente frente al ejemplo de `esp_send_data.ino`/`esp_get_data.ino`.
 
 ### 3.4 Entregable de nivel medio
 
-**Estado: código escrito, sin compilar ni probar todavía.**
+**Estado: código escrito, sin compilar ni probar todavía** (el canal de internet↔internet con ntfy.sh sí se probó de forma aislada, fuera del ESP32 — el publish/poll funciona).
 
-- [x] `proyecto/nivel_medio/nivel_medio.ino` — MEF con SOM (congestión, ECO, nocturno, peatonal, lluvia) + protocolo Serial de la sección 3.3
-- [x] `proyecto/nivel_medio/puente_serial.py` — puente Serial↔Internet (Open-Meteo + telemetría)
-- [x] `proyecto/nivel_medio/README.md` — modos, cómo correr el puente, protocolo Serial documentado
+- [x] `proyecto/nivel_medio/nivel_medio.ino` — MEF con SOM (congestión, ECO, nocturno, peatonal, lluvia, congestión de la otra maqueta) + protocolo Serial de la sección 3.3
+- [x] `proyecto/nivel_medio/puente_serial.py` — puente Serial↔Internet (Open-Meteo + telemetría + coordinación con la otra maqueta vía ntfy.sh)
+- [x] `proyecto/nivel_medio/README.md` — modos, cómo correr el puente (incluyendo con dos maquetas), protocolo Serial documentado
 - [x] `proyecto/nivel_medio/diagram.json` / `wokwi.toml` — mismo cableado de `nivel_bajo`, puerto RFC2217 `4001` (distinto al `4000` de nivel bajo, para poder tener ambos simuladores abiertos a la vez en la demo comparativa)
-- [ ] **Pendiente**: compilar con `arduino-cli` (no disponible en el entorno donde se escribió el código — hay que hacerlo localmente, comando en el README del proyecto), correr en Wokwi junto con `puente_serial.py` y confirmar que los 5 modos se disparan como se documentó aquí y en el README
+- [ ] **Pendiente**: compilar con `arduino-cli` (no disponible en el entorno donde se escribió el código — hay que hacerlo localmente, comando en el README del proyecto), correr en Wokwi junto con `puente_serial.py` y confirmar que todos los modos (incluyendo la coordinación entre maquetas) se disparan como se documentó aquí y en el README
 
 ### 3.5 Correcciones tras revisión de código (importante)
 

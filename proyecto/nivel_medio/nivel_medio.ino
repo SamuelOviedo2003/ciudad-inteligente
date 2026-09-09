@@ -53,7 +53,9 @@ const double T_AMARILLO_BASE = 2;   // segundos
 const double BONUS_CONGESTION = 3;  // seg. extra de verde si la via tiene trafico
 const double BONUS_ECO = 2;         // seg. extra de verde si el CO2 esta alto (menos frenadas/arrancadas)
 const double BONUS_LLUVIA = 1;      // seg. extra de amarillo si el puente reporta lluvia real
+const double BONUS_RED = 2;         // seg. extra de verde si la OTRA maqueta (via internet) esta muy congestionada
 const int UMBRAL_CONGESTION = 2;    // CNY activos (de 3) para considerar una via "congestionada"
+const int UMBRAL_CONGESTION_RED = 4; // conteo remoto (0-6) para considerar congestionada a la otra maqueta
 const int UMBRAL_CO2_ECO = 800;     // ppm
 const int UMBRAL_OSCURIDAD = 800;   // lectura LDR (0-4095) por debajo de esto = "de noche"
 const double MAX_ESPERA_PEATON = 12; // seg.: garantiza el cruce aunque haya trafico (self-regulation)
@@ -73,6 +75,14 @@ bool nocturnoSuspendido = false; // true mientras se atiende a un peaton de noch
 Timer tSuspenderNocturno;
 const double SUSPENSION_NOCTURNO = 20; // seg: tiempo para un ciclo completo antes de reevaluar oscuridad
 bool lluvia = false; // llega por Serial desde puente_serial.py (clima real de internet)
+
+// --- Coordinacion con la OTRA maqueta de ciudad, vía internet (no USB directo
+// como en nivel_bajo): puente_serial.py publica el conteo local en un topico
+// de ntfy.sh y recibe de vuelta el de la otra maqueta. Es la "amplificacion de
+// autoadaptabilidad" especifica de nivel medio: la vía extiende su verde no
+// solo por su propio trafico, sino por saber que la otra interseccion de la
+// ciudad esta congestionada, sin cablear las dos maquetas entre si. ---
+int detectadosRemoto = 0; // ultimo conteo (0-6) recibido de la otra maqueta
 
 // --- Peticion peatonal: corta el verde actual si la via esta libre, o
 // espera hasta un maximo si hay trafico (nunca dejan al peaton sin cruzar) ---
@@ -122,7 +132,8 @@ void setup() {
 
   apagarSemaforos();
 
-  Serial.begin(9600);
+  Serial.setTxTimeoutMs(0); // no bloquear el loop si nadie esta leyendo el USB CDC (igual que nivel_bajo)
+  Serial.begin(115200);
   lcd.init();
   lcd.backlight();
 
@@ -180,6 +191,7 @@ void aplicarFase() {
       duracionFaseActual = T_VERDE_BASE;
       if (contarVehiculos1() >= UMBRAL_CONGESTION) duracionFaseActual += BONUS_CONGESTION;
       if (leerCO2ppm() > UMBRAL_CO2_ECO) duracionFaseActual += BONUS_ECO;
+      if (detectadosRemoto >= UMBRAL_CONGESTION_RED) duracionFaseActual += BONUS_RED;
       break;
     case FASE_B: // S1 amarillo, S2 rojo
       digitalWrite(LY1, HIGH); digitalWrite(LR2, HIGH);
@@ -190,6 +202,7 @@ void aplicarFase() {
       duracionFaseActual = T_VERDE_BASE;
       if (contarVehiculos2() >= UMBRAL_CONGESTION) duracionFaseActual += BONUS_CONGESTION;
       if (leerCO2ppm() > UMBRAL_CO2_ECO) duracionFaseActual += BONUS_ECO;
+      if (detectadosRemoto >= UMBRAL_CONGESTION_RED) duracionFaseActual += BONUS_RED;
       break;
     case FASE_D: // S1 rojo, S2 amarillo
       digitalWrite(LR1, HIGH); digitalWrite(LY2, HIGH);
@@ -314,6 +327,8 @@ void procesarComando(String linea) {
     lluvia = true;
   } else if (linea == "LLUVIA=0") {
     lluvia = false;
+  } else if (linea.startsWith("DET_REMOTO=")) {
+    detectadosRemoto = linea.substring(11).toInt();
   }
 }
 
@@ -339,6 +354,8 @@ void actualizarTelemetria() {
     Serial.print(" cny4="); Serial.print(vehiculoDetectado(CNY4));
     Serial.print(" cny5="); Serial.print(vehiculoDetectado(CNY5));
     Serial.print(" cny6="); Serial.print(vehiculoDetectado(CNY6));
+    Serial.print(" det="); Serial.print(contarVehiculos1() + contarVehiculos2());
+    Serial.print(" det_remoto="); Serial.print(detectadosRemoto);
     Serial.print(" p1="); Serial.print(digitalRead(P1) == LOW ? 1 : 0);
     Serial.print(" p2="); Serial.print(digitalRead(P2) == LOW ? 1 : 0);
     Serial.print(" peaton1_espera="); Serial.print(peaton1Esperando ? 1 : 0);
@@ -356,6 +373,7 @@ String modoActualTexto() {
   if (contarVehiculos2() >= UMBRAL_CONGESTION) s += "CONG2+";
   if (leerCO2ppm() > UMBRAL_CO2_ECO) s += "ECO+";
   if (lluvia) s += "LLUVIA+";
+  if (detectadosRemoto >= UMBRAL_CONGESTION_RED) s += "RED+";
   if (s == "") return "NORMAL";
   s.remove(s.length() - 1); // quita el '+' final
   return s;
@@ -419,6 +437,7 @@ void mostrarAnuncio() {
       lcd.print(contarVehiculos1() >= UMBRAL_CONGESTION ? "CONGESTION" : "");
       lcd.setCursor(0, 2); lcd.print("Via2: "); lcd.print(contarVehiculos2()); lcd.print("/3 ");
       lcd.print(contarVehiculos2() >= UMBRAL_CONGESTION ? "CONGESTION" : "");
+      lcd.setCursor(0, 3); lcd.print("Otra maqueta: "); lcd.print(detectadosRemoto); lcd.print("/6");
       break;
     }
     case 4: { // Peatones y clima recibido por el puente

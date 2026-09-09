@@ -2,7 +2,7 @@
 """
 Puente Serial <-> Internet para el nivel medio de la Ciudad Autoadaptable.
 
-Hace dos cosas en paralelo, y es justamente esto lo que la rubrica de nivel
+Hace tres cosas en paralelo, y es justamente esto lo que la rubrica de nivel
 medio pide ("comunicacion serial con el computador para recibir y enviar
 informacion de internet, que amplifique las capacidades de autoadaptabilidad
 del sistema"):
@@ -13,16 +13,30 @@ del sistema"):
 2. Consulta cada cierto tiempo el clima real (API publica de Open-Meteo, sin
    API key) y le manda al ESP32 el comando LLUVIA=1 / LLUVIA=0 cuando cambia,
    para que el semaforo ajuste su tiempo de amarillo con un dato que la
-   maqueta no puede medir por si misma (esto es lo que "amplifica" su
-   autoadaptabilidad: informacion que no viene de sus propios sensores).
+   maqueta no puede medir por si misma.
+3. Conecta esta maqueta con la OTRA maqueta de ciudad autoadaptable a traves
+   de internet (no USB directo, a diferencia del puente maqueta-a-maqueta de
+   proyecto/puente_serial/): publica el conteo local de vehiculos en un
+   topico de ntfy.sh (gratis, sin cuenta) y lee de vuelta el de la otra
+   maqueta, mandandoselo al ESP32 como DET_REMOTO=<n>. Con eso el semaforo
+   puede extender su verde si la otra interseccion de la ciudad esta
+   congestionada, aunque las dos maquetas esten en computadores distintos en
+   cualquier parte con internet.
+
+En los tres casos la informacion que llega no la puede medir la maqueta por
+si misma (clima real, o el estado de una maqueta en otro computador) -- eso
+es lo que "amplifica" su autoadaptabilidad frente a nivel bajo.
 
 Uso:
     pip install pyserial
-    python3 puente_serial.py [puerto_serial]
+    python3 puente_serial.py [puerto_serial] [id_maqueta]
 
 Si no se indica el puerto, se usa PUERTO_DEFECTO (el simulador Wokwi con
 rfc2217ServerPort=4001, ver wokwi.toml). Con una ESP32 real, usar el puerto
 serie del sistema operativo, ej. "/dev/tty.usbserial-0001" o "COM5".
+`id_maqueta` debe ser distinto en cada una de las dos maquetas (por defecto
+"A" / cambiar a "B" en la otra), para que cada una ignore sus propios
+mensajes al leer el topico compartido.
 """
 
 import sys
@@ -36,7 +50,8 @@ import serial
 
 # --- Configuracion ---
 PUERTO_DEFECTO = "rfc2217://localhost:4001"  # ver proyecto/nivel_medio/wokwi.toml
-BAUDRATE = 9600
+BAUDRATE = 115200
+ID_MAQUETA_DEFECTO = "A"  # cambiar a "B" al correrlo en la otra maqueta
 
 # Endpoint de internet para reenviar telemetria. Dejar en None para solo
 # imprimir en consola (recomendado hasta tener un endpoint propio, ej. un
@@ -49,6 +64,14 @@ LATITUD = 4.711
 LONGITUD = -74.0721
 INTERVALO_CLIMA_S = 30  # cada cuanto se consulta el clima real
 INTERVALO_PING_S = 2    # cada cuanto se le avisa al ESP32 que el puente sigue vivo
+
+# Canal internet <-> internet entre las dos maquetas de ciudad, via ntfy.sh
+# (HTTP simple, sin cuenta ni API key -- ver https://ntfy.sh). El topico es
+# publico y adivinable por cualquiera: cambiar por uno propio del equipo
+# (ej. incluir su usuario de GitHub) para no chocar con otros grupos del
+# curso usando el mismo nombre por defecto.
+TOPIC_RED = "isa262-ciudad-autoadaptable-CAMBIAR-por-uno-propio"
+INTERVALO_RED_S = 5  # cada cuanto se revisa si la otra maqueta mando algo nuevo
 
 
 def abrir_serial(puerto):
@@ -100,8 +123,20 @@ def consultar_lluvia_real():
         return None
 
 
-def hilo_lector(ser):
-    """ESP32 -> PC: lee telemetria y la reenvia a internet."""
+def publicar_conteo_local(id_maqueta, det):
+    """Publica el conteo local de vehiculos en el topico compartido de ntfy.sh."""
+    url = f"https://ntfy.sh/{TOPIC_RED}"
+    cuerpo = f"origen={id_maqueta} det={det}".encode("utf-8")
+    peticion = urllib.request.Request(url, data=cuerpo, method="POST")
+    try:
+        urllib.request.urlopen(peticion, timeout=5)
+    except urllib.error.URLError as e:
+        print(f"[RED] no se pudo publicar en ntfy.sh: {e}")
+
+
+def hilo_lector(ser, id_maqueta):
+    """ESP32 -> PC: lee telemetria, la reenvia a internet y publica el conteo
+    local para que la otra maqueta lo vea (ver hilo_red)."""
     while True:
         try:
             linea = ser.readline().decode(errors="ignore").strip()
@@ -113,6 +148,8 @@ def hilo_lector(ser):
         if datos:
             print(f"[ESP32 -> PC] {datos}")
             enviar_a_internet(datos)
+            if "det" in datos:
+                publicar_conteo_local(id_maqueta, datos["det"])
 
 
 def hilo_clima(ser):
@@ -128,6 +165,47 @@ def hilo_clima(ser):
         time.sleep(INTERVALO_CLIMA_S)
 
 
+def hilo_red(ser, id_maqueta):
+    """Internet -> PC -> ESP32: conteo de la OTRA maqueta, via ntfy.sh.
+
+    ntfy.sh permite "poll" (traer los mensajes nuevos desde un punto) en vez
+    de mantener una conexion abierta, asi que basta con revisar cada
+    INTERVALO_RED_S segundos. Se seguimiento del id del ultimo mensaje visto
+    (mas confiable que un timestamp, que probamos y a veces no devuelve nada
+    en topicos recien creados) y se usa como "since" en la siguiente consulta,
+    para no reprocesar mensajes viejos en cada ciclo. La primera vez se pide
+    "since=all" solo para conocer el id mas reciente, sin actuar sobre el
+    historial completo. Cada linea de la respuesta es un JSON de ntfy con el
+    mensaje publicado (ver publicar_conteo_local) en el campo "message"; se
+    ignoran los mensajes publicados por esta misma maqueta.
+    """
+    ultimo_id = "all"
+    while True:
+        url = f"https://ntfy.sh/{TOPIC_RED}/json?poll=1&since={ultimo_id}"
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                for linea_bytes in resp:
+                    linea = linea_bytes.decode(errors="ignore").strip()
+                    if not linea:
+                        continue
+                    try:
+                        evento = json.loads(linea)
+                    except json.JSONDecodeError:
+                        continue
+                    ultimo_id = evento.get("id", ultimo_id)
+                    if ultimo_id == "all":
+                        continue  # bootstrap: no actuar sobre el historial completo
+                    mensaje = evento.get("message", "")
+                    datos = parsear_telemetria(mensaje)
+                    if datos.get("origen") and datos["origen"] != id_maqueta and "det" in datos:
+                        comando = f"DET_REMOTO={datos['det']}\n"
+                        ser.write(comando.encode())
+                        print(f"[PC -> ESP32] {comando.strip()} (otra maqueta, via internet)")
+        except urllib.error.URLError as e:
+            print(f"[RED] no se pudo consultar ntfy.sh: {e}")
+        time.sleep(INTERVALO_RED_S)
+
+
 def hilo_ping(ser):
     """Le avisa al ESP32 que el puente sigue vivo (se ve en el LCD)."""
     while True:
@@ -137,11 +215,13 @@ def hilo_ping(ser):
 
 def main():
     puerto = sys.argv[1] if len(sys.argv) > 1 else PUERTO_DEFECTO
-    print(f"[PUENTE] abriendo {puerto} @ {BAUDRATE} baudios")
+    id_maqueta = sys.argv[2] if len(sys.argv) > 2 else ID_MAQUETA_DEFECTO
+    print(f"[PUENTE] abriendo {puerto} @ {BAUDRATE} baudios (maqueta '{id_maqueta}')")
     ser = abrir_serial(puerto)
 
-    threading.Thread(target=hilo_lector, args=(ser,), daemon=True).start()
+    threading.Thread(target=hilo_lector, args=(ser, id_maqueta), daemon=True).start()
     threading.Thread(target=hilo_clima, args=(ser,), daemon=True).start()
+    threading.Thread(target=hilo_red, args=(ser, id_maqueta), daemon=True).start()
     threading.Thread(target=hilo_ping, args=(ser,), daemon=True).start()
 
     print("[PUENTE] corriendo. Ctrl+C para salir.")

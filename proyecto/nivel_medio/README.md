@@ -1,6 +1,8 @@
 # Nivel medio
 
-CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`, pero ahora los setpoints (duración de verde/amarillo) **se ajustan en tiempo real** según el contexto (auto-ajuste + conciencia del contexto), y el sistema recibe por Serial un dato que no puede medir por sí mismo (clima real, vía internet) que amplía su capacidad de autoadaptación — ver [`docs/concepto/cps-nivel-bajo.md`](../../docs/concepto/cps-nivel-bajo.md) y la rúbrica en [`docs/evaluacion/entrega.md`](../../docs/evaluacion/entrega.md).
+CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`, pero ahora los setpoints (duración de verde/amarillo) **se ajustan en tiempo real** según el contexto (auto-ajuste + conciencia del contexto), y el sistema recibe por Serial datos que no puede medir por sí mismo — clima real, y el estado de la **otra maqueta de ciudad**, ambos vía internet — que amplían su capacidad de autoadaptación — ver [`docs/concepto/cps-nivel-bajo.md`](../../docs/concepto/cps-nivel-bajo.md) y la rúbrica en [`docs/evaluacion/entrega.md`](../../docs/evaluacion/entrega.md).
+
+A diferencia de `nivel_bajo` (donde las dos maquetas físicas se conectan directo por USB al mismo computador, ver [`proyecto/puente_serial/`](../puente_serial/)), aquí las dos maquetas **no necesitan estar en el mismo computador ni cerca físicamente**: se coordinan a través de internet, que es justo lo que pide la rúbrica de este nivel.
 
 ## Diferencias frente a nivel bajo
 
@@ -11,7 +13,8 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 | CO2 | Solo se muestra | Si supera el umbral, extiende el verde (modo ECO) para reducir frenadas/arrancadas |
 | LDR (luz ambiente) | Solo se muestra | Si ambos están oscuros, reemplaza el ciclo normal por parpadeo nocturno (ambos amarillos), salvo que un peatón esté pidiendo cruzar (ver prioridades abajo) |
 | Botón peatonal | Solo se muestra SI/NO | Corta el verde actual si la vía está libre, o espera hasta un máximo de 12 s si hay tráfico |
-| Comunicación | Ninguna | Serial con un script en el computador (`puente_serial.py`) que reenvía telemetría a internet y trae clima real que ajusta el amarillo |
+| Comunicación | Ninguna | Serial con un script en el computador (`puente_serial.py`) que reenvía telemetría a internet, trae clima real que ajusta el amarillo, y conecta con la otra maqueta vía internet |
+| Coordinación entre maquetas | No existe (cada semáforo es independiente) | Si la otra maqueta (en cualquier computador con internet) reporta congestión alta, esta vía también extiende su verde +2 s |
 
 ## Cómo correrlo
 
@@ -23,6 +26,7 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
    python3 puente_serial.py
    ```
    El script se conecta por defecto a `rfc2217://localhost:4001` (el simulador). Con una ESP32 física, pasar el puerto serie real como argumento, ej. `python3 puente_serial.py /dev/tty.usbserial-0001`.
+3. **Antes de la demo con las dos maquetas**: en `puente_serial.py`, cambiar `TOPIC_RED` por un nombre propio del equipo (el de por defecto es público y cualquiera podría estar usándolo). Correr el script en cada computador con un `id_maqueta` distinto como segundo argumento, ej. en la maqueta A: `python3 puente_serial.py rfc2217://localhost:4001 A`, y en la maqueta B: `python3 puente_serial.py rfc2217://localhost:4002 B`. Para probar esto con un solo computador, basta con tener las dos simulaciones de Wokwi abiertas a la vez (una en el puerto `4001`, ver `wokwi.toml`, y otra ciudad en otro puerto) y correr dos instancias del script, una por cada una.
 
 ## Qué debería pasar
 
@@ -33,8 +37,9 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 - **Modo nocturno**: bajar ambos potenciómetros de LDR por debajo del umbral (`UMBRAL_OSCURIDAD`) → los semáforos dejan de ciclar y ambos amarillos parpadean cada 0.5 s, hasta que vuelva a haber luz.
 - **Petición peatonal**: presionar P1 mientras S1 está en verde. Si la vía 1 no tiene autos detectados, el verde se corta de inmediato. Si hay autos, el LCD muestra "(esperando)" y el sistema garantiza el corte a más tardar en 12 s, haya o no tráfico.
 - **Lluvia (dato de internet)**: cuando `puente_serial.py` consulta el clima real y detecta precipitación en la ubicación configurada, manda `LLUVIA=1` por serial → el amarillo se extiende 1 s en ambas vías. Para probarlo sin depender del clima real del día, se puede simular escribiendo manualmente en el monitor serial del simulador: `LLUVIA=1` (o `LLUVIA=0` para desactivarlo).
+- **Congestión en la otra maqueta (dato de internet, la coordinación entre las dos ciudades)**: cuando la otra maqueta reporta 4 o más CNY detectados (`UMBRAL_CONGESTION_RED`), el puente le manda `DET_REMOTO=<n>` a esta → el verde de la vía activa se extiende 2 s más (`BONUS_RED`), aunque en esta maqueta no haya tráfico local. Para probarlo sin la otra maqueta real, se puede simular escribiendo `DET_REMOTO=5` directo en el monitor serial del simulador.
 
-**LCD** — igual que en nivel bajo rota 5 pantallas cada 3 s (con refresco cada 0.3 s), pero ahora explica **por qué** se está comportando así: modo activo + fase + duración aplicada + si el puente con el computador está conectado (pantalla 0), estado del modo ECO (pantalla 1), estado del modo nocturno y sus umbrales (pantalla 2), congestión por vía (pantalla 3), y estado de los botones peatonales + clima recibido (pantalla 4). Si el modo nocturno está activo, el LCD lo muestra de inmediato sin esperar la rotación.
+**LCD** — igual que en nivel bajo rota 5 pantallas cada 3 s (con refresco cada 0.3 s), pero ahora explica **por qué** se está comportando así: modo activo + fase + duración aplicada + si el puente con el computador está conectado (pantalla 0), estado del modo ECO (pantalla 1), estado del modo nocturno y sus umbrales (pantalla 2), congestión por vía **más el conteo de la otra maqueta** (pantalla 3), y estado de los botones peatonales + clima recibido (pantalla 4). Si el modo nocturno está activo, el LCD lo muestra de inmediato sin esperar la rotación.
 
 ## Notas de diseño importantes
 
@@ -43,19 +48,26 @@ CPS Generación 1: los mismos dos semáforos y la misma maqueta de `nivel_bajo`,
 
 **Puente serial (consola de `puente_serial.py`)**:
 ```
-[ESP32 -> PC] {'modo': 'NORMAL', 'fase': 'A', 'dur': 5.0, 'co2': 612, ...}
+[ESP32 -> PC] {'modo': 'NORMAL', 'fase': 'A', 'dur': 5.0, 'co2': 612, 'det': 2, ...}
 [PC -> ESP32] LLUVIA=1 (clima real de internet)
+[PC -> ESP32] DET_REMOTO=5 (otra maqueta, via internet)
 ```
 
-## Protocolo Serial (9600 baudios)
+## Coordinación con la otra maqueta, vía internet
 
-- **ESP32 → PC**, cada 1 s, una línea de texto `clave=valor` separada por espacios (`modo=NORMAL fase=A dur=5.0 co2=612 ldr1=... cny1=... p1=... peaton1_espera=... lluvia=... nocturno=...`). Los `cny1..cny6` ya vienen interpretados (`1` = vehículo detectado, `0` = libre), no el nivel eléctrico crudo. `puente_serial.py` convierte la línea completa a JSON antes de reenviarla a internet.
-- **PC → ESP32**: `PING` (responde `PONG`, usado solo para que el LCD muestre "PC: CONECTADO"), `LLUVIA=1` / `LLUVIA=0`.
+`puente_serial.py` publica el conteo local de vehículos (`det`, de la telemetría) en un tema de [ntfy.sh](https://ntfy.sh) (servicio público gratuito de pub/sub por HTTP, sin cuenta ni API key) cada vez que llega telemetría nueva, y revisa cada 5 s si la otra maqueta publicó algo nuevo en ese mismo tema — si es así, se lo manda al ESP32 como `DET_REMOTO=<n>`. Cada maqueta se identifica con un `id_maqueta` (`A`/`B`, segundo argumento del script) para que cada una ignore sus propios mensajes.
+
+**Importante**: el tema por defecto (`TOPIC_RED` en el código) es público y adivinable — cualquiera que sepa el nombre puede publicar o leer ahí. Cambiarlo por uno propio del equipo antes de la demo (ej. agregar su usuario de GitHub al nombre) para no mezclar datos con otro grupo del curso usando el valor por defecto.
+
+## Protocolo Serial (115200 baudios)
+
+- **ESP32 → PC**, cada 1 s, una línea de texto `clave=valor` separada por espacios (`modo=NORMAL fase=A dur=5.0 co2=612 ldr1=... cny1=... det=2 det_remoto=0 p1=... peaton1_espera=... lluvia=... nocturno=...`). Los `cny1..cny6` ya vienen interpretados (`1` = vehículo detectado, `0` = libre), no el nivel eléctrico crudo; `det` es la suma de ambas vías locales. `puente_serial.py` convierte la línea completa a JSON antes de reenviarla a internet, y usa el campo `det` para publicarlo en ntfy.sh.
+- **PC → ESP32**: `PING` (responde `PONG`, usado solo para que el LCD muestre "PC: CONECTADO"), `LLUVIA=1` / `LLUVIA=0`, `DET_REMOTO=<n>` (conteo de la otra maqueta, recibido vía ntfy.sh).
 
 ## Archivos
 
 - `nivel_medio.ino` — código fuente del ESP32
-- `puente_serial.py` — puente Serial ↔ Internet (clima real + telemetría)
+- `puente_serial.py` — puente Serial ↔ Internet (telemetría, clima real, y coordinación con la otra maqueta vía ntfy.sh)
 - `diagram.json`, `wokwi.toml` — configuración del simulador (mismo cableado que `nivel_bajo`)
 
 ## Compilar (produce `code.bin`/`code.elf`, no incluidos aún)
