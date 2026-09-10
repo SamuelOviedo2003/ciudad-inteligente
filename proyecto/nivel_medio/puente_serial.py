@@ -157,9 +157,9 @@ def hilo_lector(ser, id_maqueta):
     local para que la otra maqueta lo vea (ver hilo_red), respetando los
     limites de ntfy.sh: solo cuando cambia, o un latido cada INTERVALO_LATIDO_S."""
     ultimo_det = None
-    ultima_publicacion = 0.0
-    while True:
-        try:
+    ultima_publicacion = None  # None = "nunca se ha publicado" (no usar 0.0: time.monotonic()
+    while True:                # puede arrancar cerca de 0 segun la plataforma, y con 0.0 como
+        try:                   # centinela la primera publicacion nunca pasaba el filtro de 5 s)
             linea = ser.readline().decode(errors="ignore").strip()
         except serial.SerialException:
             break
@@ -173,9 +173,11 @@ def hilo_lector(ser, id_maqueta):
         if "det" not in datos:
             continue
         ahora = time.monotonic()
+        nunca_publicado = ultima_publicacion is None
         cambio = datos["det"] != ultimo_det
-        latido = ahora - ultima_publicacion >= INTERVALO_LATIDO_S
-        if (cambio or latido) and ahora - ultima_publicacion >= INTERVALO_MIN_PUBLICACION_S:
+        latido = (not nunca_publicado) and (ahora - ultima_publicacion >= INTERVALO_LATIDO_S)
+        gap_cumplido = nunca_publicado or (ahora - ultima_publicacion >= INTERVALO_MIN_PUBLICACION_S)
+        if (nunca_publicado or cambio or latido) and gap_cumplido:
             publicar_conteo_local(id_maqueta, datos["det"])
             ultimo_det = datos["det"]
             ultima_publicacion = ahora

@@ -53,7 +53,7 @@
 const float DC_GAIN = 8.5;
 const float ZERO_POINT_VOLTAGE = 0.265;
 const float REACTION_VOLTAGE = 0.059;
-const float CO2Curve[3] = {2.602, ZERO_POINT_VOLTAGE, (REACTION_VOLTAGE / (2.602 - 3))};
+const float CO2Curve[3] = {2.602f, ZERO_POINT_VOLTAGE, (float)(REACTION_VOLTAGE / (2.602 - 3))};
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 
