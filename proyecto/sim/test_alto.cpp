@@ -3,6 +3,7 @@
 #include "LiquidCrystal_I2C.h"
 #include "prototypes_alto.h"
 #include "nivel_alto.ino"
+static const int LDR_OSCURO = UMBRAL_NOCHE_ENTRA / 2;
 #include <vector>
 #include <string>
 
@@ -38,7 +39,7 @@ void enviar(const char* s) { for (const char* p = s; *p; p++) serial_in.push_bac
 void ambienteNormal() {
   analog_value[LDR1] = 3282; analog_value[LDR2] = 3282; analog_value[CO2] = 3282;
   for (int p : {CNY1, CNY2, CNY3, CNY4, CNY5, CNY6}) pin_level[p] = HIGH;
-  pin_level[P1] = HIGH; pin_level[P2] = HIGH;
+  pin_level[P1] = P_REPOSO; pin_level[P2] = P_REPOSO;
   random_value = 500;  // random(1000)=500 >= 100 -> nunca explora, salvo que el escenario lo cambie
 }
 
@@ -121,11 +122,11 @@ int main(int argc, char** argv) {
     CHECK_NEAR(measurePhase(), 5, 0.01, "verde 3 s + 2 s por la otra maqueta congestionada (regla de red sobre la decision)");
     enviar("LLUVIA=0\nDET_REMOTO=0\n"); tick();
     runUntilPhase('A'); runFor(0.5);
-    pin_level[P1] = LOW;
-    double resto = measurePhase(); pin_level[P1] = HIGH;
+    pin_level[P1] = P_ACTIVO;
+    double resto = measurePhase(); pin_level[P1] = P_REPOSO;
     CHECK_NEAR(resto + 0.5, 2, 0.02, "peaton con via libre: el verde se corta al verde minimo (2 s), por encima del agente");
     runUntilPhase('C'); tick();  // en C se borra la peticion peatonal (que tiene prioridad sobre el nocturno)
-    analog_value[LDR1] = 300; analog_value[LDR2] = 300; runFor(0.5);
+    analog_value[LDR1] = LDR_OSCURO; analog_value[LDR2] = LDR_OSCURO; runFor(0.5);
     CHECK(modoNocturno, "nocturno sigue siendo una regla fija");
     analog_value[LDR1] = 3282; analog_value[LDR2] = 3282; tick();
     CHECK(!modoNocturno && faseLuces() == 'A', "sale del nocturno a fase A");

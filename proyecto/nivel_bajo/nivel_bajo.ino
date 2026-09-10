@@ -27,12 +27,13 @@
 #define LY2 15
 #define LG2 16
 
-// Nivel electrico de un boton peatonal presionado. En Wokwi los botones van a
-// tierra y el pin usa el pull-up interno (reposo = HIGH, presionado = LOW). El
-// codigo de pruebas del curso (esp_pruebas.ino) los lee como INPUT sin pull-up,
-// asi que en la maqueta fisica pueden estar cableados al reves: verificar con
-// ese sketch (muestra P1/P2 en el LCD) y ajustar solo esta constante.
-#define P_ACTIVO LOW
+// Nivel electrico de un boton peatonal presionado. En la maqueta fisica
+// (medido el 2026-09-09 en las dos placas) los botones tienen pull-down externo:
+// reposo = LOW, presionado = HIGH. En Wokwi (diagram.json) van a tierra con el
+// pull-up interno, o sea al reves: para simular ahi, poner LOW. P_MODO acompana
+// a la constante (sin pull-up interno cuando hay pull-down externo).
+#define P_ACTIVO HIGH
+#define P_MODO (P_ACTIVO == LOW ? INPUT_PULLUP : INPUT)
 
 // --- Calibracion CO2 (identica a esp_pruebas.ino) ---
 const float DC_GAIN = 8.5;
@@ -73,8 +74,8 @@ int detectadosRemoto = 0;
 String bufferSerial = "";
 
 void setup() {
-  pinMode(P1, INPUT_PULLUP); // sin resistencia externa en el diagrama, se usa el pull-up interno
-  pinMode(P2, INPUT_PULLUP); // presionado = LOW, suelto = HIGH
+  pinMode(P1, P_MODO);
+  pinMode(P2, P_MODO);
   pinMode(CNY1, INPUT);
   pinMode(CNY2, INPUT);
   pinMode(CNY3, INPUT);

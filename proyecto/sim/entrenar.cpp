@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
   const double DURACION_EPISODIO = 1200;  // 20 min de trafico simulado
 
   analog_value[LDR1] = 3282; analog_value[LDR2] = 3282; analog_value[CO2] = 3282;
-  pin_level[P1] = HIGH; pin_level[P2] = HIGH;
+  pin_level[P1] = P_REPOSO; pin_level[P2] = P_REPOSO;
   setup();
   std::mt19937 rngExplora(7);
   Trafico tr;

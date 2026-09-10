@@ -18,7 +18,7 @@ int main(int argc, char **argv) {
   double segundos = argc > 3 ? atof(argv[3]) : 1200;
 
   analog_value[LDR1] = 3282; analog_value[LDR2] = 3282; analog_value[CO2] = 3282;
-  pin_level[P1] = HIGH; pin_level[P2] = HIGH;
+  pin_level[P1] = P_REPOSO; pin_level[P2] = P_REPOSO;
   for (int p : {42, 41, 40, 39, 38, 37}) pin_level[p] = HIGH;
   setup();
 #ifdef NIVEL_ALTO

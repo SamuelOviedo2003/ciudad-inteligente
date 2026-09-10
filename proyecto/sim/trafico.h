@@ -52,9 +52,9 @@ struct Trafico {
       // peatones
       if (!peatonEsperando[v] && azar(tasaPeaton * dt)) {
         peatonEsperando[v] = true; peatonDesde[v] = t; soltarEn[v] = t + T_PULSACION;
-        sim::pin_level[P[v]] = LOW;
+        sim::pin_level[P[v]] = P_ACTIVO;
       }
-      if (sim::pin_level[P[v]] == LOW && t >= soltarEn[v]) sim::pin_level[P[v]] = HIGH;
+      if (sim::pin_level[P[v]] == P_ACTIVO && t >= soltarEn[v]) sim::pin_level[P[v]] = P_REPOSO;
       if (peatonEsperando[v] && t > soltarEn[v] && sim::pin_level[LR[v]] == HIGH) {
         esperaPeatonTotal += t - peatonDesde[v]; peatones++; peatonEsperando[v] = false;
       }

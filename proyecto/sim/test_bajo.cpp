@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
   std::string esc = argc > 1 ? argv[1] : "baseline";
   analog_value[LDR1] = 0; analog_value[LDR2] = 0; analog_value[CO2] = 0;  // Wokwi: potenciometros en 0 (nivel_bajo no fija value)
   for (int p : {CNY1, CNY2, CNY3, CNY4, CNY5, CNY6}) pin_level[p] = HIGH;
-  pin_level[P1] = HIGH; pin_level[P2] = HIGH;
+  pin_level[P1] = P_REPOSO; pin_level[P2] = P_REPOSO;
   printf("== %s ==\n", esc.c_str());
   if (esc == "baseline") {
     setup(); tick();
@@ -47,12 +47,12 @@ int main(int argc, char** argv) {
     CHECK_NEAR(measurePhase(), 2, 0.01, "D = 2 s");
     // sensores y botones cambiando a lo loco: no deben alterar nada
     for (int p : {CNY1, CNY2, CNY3, CNY4, CNY5, CNY6}) pin_level[p] = LOW;
-    pin_level[P1] = LOW; pin_level[P2] = LOW; analog_value[LDR1] = 4095; analog_value[CO2] = 1000;
+    pin_level[P1] = P_ACTIVO; pin_level[P2] = P_ACTIVO; analog_value[LDR1] = 4095; analog_value[CO2] = 1000;
     CHECK_NEAR(measurePhase(), 5, 0.01, "A sigue 5 s con todos los sensores activos");
     CHECK_NEAR(measurePhase(), 2, 0.01, "B sigue 2 s");
     CHECK(violaciones == 0, "sin violaciones de luces");
   } else if (esc == "telemetria") {
-    setup(); pin_level[CNY1] = LOW; pin_level[P2] = LOW;  // despues de setup: pinMode(INPUT_PULLUP) del mock pone HIGH
+    setup(); pin_level[CNY1] = LOW; pin_level[P2] = P_ACTIVO;  // despues de setup (con P_MODO=INPUT_PULLUP el mock pondria HIGH)
     tick(); runFor(1.2);
     size_t p = serial_out.find("{"); size_t e = serial_out.find("}", p);
     std::string j = serial_out.substr(p, e - p + 1);

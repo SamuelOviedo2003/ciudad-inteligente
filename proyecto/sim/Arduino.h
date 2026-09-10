@@ -18,6 +18,9 @@
 #define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLUP 2
+// Nivel de un boton peatonal suelto, complementario a P_ACTIVO (definido en cada
+// .ino, que se incluye despues de este archivo; la macro se expande al usarse).
+#define P_REPOSO (P_ACTIVO == HIGH ? LOW : HIGH)
 #define DEC 10
 typedef uint8_t byte;
 typedef bool boolean;

@@ -38,12 +38,13 @@
 // objeto y ajustar unicamente esta constante si hace falta.
 #define CNY_ACTIVO LOW
 
-// Nivel electrico de un boton peatonal presionado. En Wokwi los botones van a
-// tierra y el pin usa el pull-up interno (reposo = HIGH, presionado = LOW). El
-// codigo de pruebas del curso (esp_pruebas.ino) los lee como INPUT sin pull-up,
-// asi que en la maqueta fisica pueden estar cableados al reves: verificar con
-// ese sketch (muestra P1/P2 en el LCD) y ajustar solo esta constante.
-#define P_ACTIVO LOW
+// Nivel electrico de un boton peatonal presionado. En la maqueta fisica
+// (medido el 2026-09-09 en las dos placas) los botones tienen pull-down externo:
+// reposo = LOW, presionado = HIGH. En Wokwi (diagram.json) van a tierra con el
+// pull-up interno, o sea al reves: para simular ahi, poner LOW. P_MODO acompana
+// a la constante (sin pull-up interno cuando hay pull-down externo).
+#define P_ACTIVO HIGH
+#define P_MODO (P_ACTIVO == LOW ? INPUT_PULLUP : INPUT)
 
 // --- Calibracion CO2 (identica a nivel_bajo) ---
 const float DC_GAIN = 8.5;
@@ -68,8 +69,12 @@ const int UMBRAL_CO2_ECO = 800;     // ppm
 // y solo sale cuando alguno supera UMBRAL_NOCHE_SALE. Con un solo umbral, el
 // ruido del ADC alrededor de ese valor hacia entrar y salir del nocturno varias
 // veces por segundo, reiniciando el ciclo en fase A cada vez.
-const int UMBRAL_NOCHE_ENTRA = 800;  // lectura LDR (0-4095)
-const int UMBRAL_NOCHE_SALE = 1000;
+// Valores medidos en las maquetas fisicas (2026-09-09, luz de habitacion):
+// placa A ~250/330, placa B ~1550/300; tapadas con la mano bajan a 13-200. Con
+// el umbral anterior (800) la placa A quedaba en nocturno de dia. En Wokwi el
+// potenciometro de LDR debe bajar de ~4 % (value < 37) para simular la noche.
+const int UMBRAL_NOCHE_ENTRA = 150;  // lectura LDR (0-4095)
+const int UMBRAL_NOCHE_SALE = 250;
 const double VERDE_MINIMO = 2;       // seg.: un peaton nunca corta un verde antes de esto
 const double MAX_ESPERA_PEATON = 6;  // seg.: con trafico, el peaton espera como mucho esto (self-regulation)
 
@@ -138,8 +143,8 @@ const unsigned long TIMEOUT_PC_MS = 5000;
 String bufferSerial = "";
 
 void setup() {
-  pinMode(P1, INPUT_PULLUP);
-  pinMode(P2, INPUT_PULLUP);
+  pinMode(P1, P_MODO);
+  pinMode(P2, P_MODO);
   pinMode(CNY1, INPUT);
   pinMode(CNY2, INPUT);
   pinMode(CNY3, INPUT);

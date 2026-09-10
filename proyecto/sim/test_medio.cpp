@@ -5,6 +5,7 @@
 #include "LiquidCrystal_I2C.h"
 #include "prototypes_medio.h"
 #include "nivel_medio.ino"
+static const int LDR_OSCURO = UMBRAL_NOCHE_ENTRA / 2;  // lectura LDR claramente "de noche"
 #include <vector>
 #include <string>
 
@@ -51,7 +52,7 @@ void printEventos() { printf("  eventos:"); for (auto& e : eventos) printf(" %c@
 void ambienteNormal() {
   analog_value[LDR1] = 3276; analog_value[LDR2] = 3276; analog_value[CO2] = 3276;  // 80% de 4095
   for (int p : {CNY1, CNY2, CNY3, CNY4, CNY5, CNY6}) pin_level[p] = HIGH;          // pull-up, nada detectado
-  pin_level[P1] = HIGH; pin_level[P2] = HIGH;
+  pin_level[P1] = P_REPOSO; pin_level[P2] = P_REPOSO;
 }
 
 int main(int argc, char** argv) {
@@ -126,7 +127,7 @@ int main(int argc, char** argv) {
     CHECK(!modoNocturno && faseLuces() == 'A', "con value=820 el simulador arranca en modo normal (fase A)");
     CHECK(leerCO2ppm() < UMBRAL_CO2_ECO, "con value=820 el modo ECO arranca apagado");
   } else if (esc == "nocturno") {
-    analog_value[LDR1] = 300; analog_value[LDR2] = 300;
+    analog_value[LDR1] = LDR_OSCURO; analog_value[LDR2] = LDR_OSCURO;
     setup(); tick();
     CHECK(modoNocturno, "con ambos LDR oscuros entra en modo nocturno");
     int toggles = 0, prev = pin_level[LY1]; bool rojosVerdes = false;
@@ -137,66 +138,66 @@ int main(int argc, char** argv) {
     analog_value[LDR1] = 3276; analog_value[LDR2] = 3276; tick();
     CHECK(!modoNocturno && faseLuces() == 'A', "al volver la luz retoma en fase A");
     CHECK_NEAR(measurePhase(), 5, 0.01, "y la A dura 5 s");
-    analog_value[LDR1] = 300; tick(); runFor(1);
+    analog_value[LDR1] = LDR_OSCURO; tick(); runFor(1);
     CHECK(!modoNocturno, "con un solo LDR oscuro NO entra en nocturno (exige ambos)");
   } else if (esc == "nocturno_histeresis") {
     setup(); tick();
     int entradas = 0; bool prev = modoNocturno;
     for (int i = 0; i < 5000; i++) {
-      int v = ((i / 100) % 2) ? 790 : 810;  // LDR oscilando alrededor del umbral cada 100 ms
+      int v = ((i / 100) % 2) ? UMBRAL_NOCHE_ENTRA - 10 : UMBRAL_NOCHE_ENTRA + 10;  // LDR oscilando alrededor del umbral cada 100 ms
       analog_value[LDR1] = v; analog_value[LDR2] = v;
       tick();
       if (modoNocturno && !prev) entradas++;
       prev = modoNocturno;
     }
-    printf("  entradas a nocturno en 5 s con LDR oscilando 790<->810: %d\n", entradas);
+    printf("  entradas a nocturno en 5 s con LDR oscilando %d<->%d: %d\n", UMBRAL_NOCHE_ENTRA - 10, UMBRAL_NOCHE_ENTRA + 10, entradas);
     CHECK(entradas <= 1, "no debe entrar/salir de nocturno repetidamente con ruido en el umbral (FALLA = falta histeresis)");
   } else if (esc == "peaton_libre") {
     setup(); tick();
     runFor(1.0);
-    pin_level[P1] = LOW;
+    pin_level[P1] = P_ACTIVO;
     double resto = measurePhase();
-    pin_level[P1] = HIGH;
+    pin_level[P1] = P_REPOSO;
     CHECK_NEAR(resto, 1, 0.01, "P1 a 1 s de verde con via libre: corta al cumplir el verde minimo (2 s)");
     CHECK(faseLuces() == 'B', "pasa a amarillo (B), no salta directo a rojo");
     CHECK_NEAR(measurePhase(), 2, 0.01, "amarillo normal de 2 s");
     runUntilPhase('A'); runFor(3.0);
-    pin_level[P1] = LOW; resto = measurePhase(); pin_level[P1] = HIGH;
+    pin_level[P1] = P_ACTIVO; resto = measurePhase(); pin_level[P1] = P_REPOSO;
     CHECK_NEAR(resto, 0, 0.01, "P1 a 3 s de verde con via libre: corta de inmediato");
     CHECK(violaciones == 0, "sin violaciones de luces");
   } else if (esc == "peaton_trafico") {
     pin_level[CNY1] = LOW; pin_level[CNY2] = LOW;  // A = 8 s
     setup(); tick();
     runFor(1.0);
-    pin_level[P1] = LOW; runFor(0.3); pin_level[P1] = HIGH;
+    pin_level[P1] = P_ACTIVO; runFor(0.3); pin_level[P1] = P_REPOSO;
     CHECK(peaton1Pedido, "con trafico el peaton queda 'esperando'");
     double resto = measurePhase();
     CHECK_NEAR(resto + 1.3, 7, 0.02, "con trafico (A=8 s) el peaton que pidio a 1 s cruza a los 6 s de espera (MAX_ESPERA_PEATON), antes de que termine el verde");
   } else if (esc == "peaton_fuera_de_fase") {
     setup(); tick();
     runUntilPhase('C'); runFor(1.0);
-    pin_level[P1] = LOW; runFor(0.5); pin_level[P1] = HIGH;  // P1 durante C: S1 ya esta en rojo, el peaton cruza ahi
+    pin_level[P1] = P_ACTIVO; runFor(0.5); pin_level[P1] = P_REPOSO;  // P1 durante C: S1 ya esta en rojo, el peaton cruza ahi
     CHECK(!peaton1Pedido, "una pulsacion de P1 durante C se atiende en el acto (S1 en rojo) y no queda pendiente");
     runUntilPhase('A');
     CHECK_NEAR(measurePhase(), 5, 0.01, "la siguiente A dura 5 s completos");
     runUntilPhase('D'); runFor(0.5);
-    pin_level[P1] = LOW; runFor(0.3); pin_level[P1] = HIGH;  // P1 durante D: queda memorizado para la proxima A
+    pin_level[P1] = P_ACTIVO; runFor(0.3); pin_level[P1] = P_REPOSO;  // P1 durante D: queda memorizado para la proxima A
     CHECK(peaton1Pedido, "una pulsacion de P1 durante D queda memorizada");
     runUntilPhase('A');
     CHECK_NEAR(measurePhase(), 2, 0.01, "y la siguiente A se corta al cumplir el verde minimo de 2 s");
   } else if (esc == "peaton_sostenido") {
     setup(); tick();
-    pin_level[P1] = LOW;  // boton pegado o sostenido
+    pin_level[P1] = P_ACTIVO;  // boton pegado o sostenido
     double maxVerde = 0, totalVerde = 0; unsigned long t0 = now_ms; double actual = 0;
     while (now_ms - t0 < 30000) { tick(); if (faseLuces() == 'A') { actual += 0.001; totalVerde += 0.001; } else { if (actual > maxVerde) maxVerde = actual; actual = 0; } }
     printf("  en 30 s con P1 sostenido: verde S1 maximo %.3f s, total %.3f s\n", maxVerde, totalVerde);
     CHECK(maxVerde >= 1.0, "S1 conserva un verde minimo aunque P1 este pegado (FALLA = no hay verde minimo, la via 1 se queda sin paso)");
   } else if (esc == "nocturno_peaton") {
-    analog_value[LDR1] = 300; analog_value[LDR2] = 300;
+    analog_value[LDR1] = LDR_OSCURO; analog_value[LDR2] = LDR_OSCURO;
     setup(); tick(); runFor(2);
     CHECK(modoNocturno, "en nocturno");
     double tPress = t();
-    pin_level[P1] = LOW; runFor(0.3); pin_level[P1] = HIGH;
+    pin_level[P1] = P_ACTIVO; runFor(0.3); pin_level[P1] = P_REPOSO;
     CHECK(!modoNocturno && faseLuces() != 'N', "P1 interrumpe el nocturno");
     while (!modoNocturno && t() - tPress < 60) tick();
     printf("  nocturno volvio %.2f s despues de la pulsacion (SUSPENSION_NOCTURNO=%.0f)\n", t() - tPress, SUSPENSION_NOCTURNO);
@@ -258,7 +259,7 @@ int main(int argc, char** argv) {
     setup(); tick(); runFor(16);
     printf("  modo mas largo: '%s' (%u chars)\n", modoActualTexto().c_str(), modoActualTexto().length());
     printf("  lcd.clear() en 16 s: %d (cada %.0f ms)\n", lcd.clears, 16000.0 / lcd.clears);
-    analog_value[LDR1] = 300; analog_value[LDR2] = 300; runFor(1);
+    analog_value[LDR1] = LDR_OSCURO; analog_value[LDR2] = LDR_OSCURO; runFor(1);
     printf("  desbordes de linea (>20 col): %d\n", lcd.overflows);
     for (auto& s : lcd.overflow_samples) printf("    %s\n", s.c_str());
     CHECK(lcd.overflows == 0, "ningun texto se pasa de 20 columnas");

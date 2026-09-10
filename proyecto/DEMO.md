@@ -4,7 +4,7 @@ Cubre lo que pide la rúbrica de [`docs/evaluacion/entrega.md`](../docs/evaluaci
 
 ## Antes de entrar al salón
 
-1. Con la maqueta física: cargar `esp_pruebas.ino` (`assets/code/esp32/smart_city/`) y anotar qué muestra el LCD para P1, P2 y CNY1..6 en reposo y activados. Si el reposo no es 1, ajustar `P_ACTIVO` y `CNY_ACTIVO` en los tres `.ino` (una línea cada uno) y recompilar con `CDCOnBoot=cdc` (README raíz). Confirmar ahí mismo que el LCD es de 20x4.
+1. Con la maqueta física (medido el 2026-09-09): los botones son activos en HIGH (`P_ACTIVO HIGH` en los tres `.ino`), los CNY activos en LOW y el LCD es de 20x4. Los binarios de `placa/` ya están compilados así; los `code.bin` de Wokwi siguen con `P_ACTIVO LOW` porque el diagrama cablea los botones a tierra.
 2. En `nivel_medio/puente_serial.py`, cambiar `TOPIC_RED` por un nombre propio del equipo. El mismo script sirve para los tres niveles que hablan serial (medio y alto).
 3. Probar el puente con las dos maquetas a la vez y ver llegar `DET_REMOTO` de una a otra. Abrir `https://ntfy.sh/<TOPIC_RED>` en el navegador: es el canal en vivo entre las dos ciudades y sirve como pantalla durante la charla.
 4. Si el nivel alto va a correr en la maqueta, dejarlo encendido un rato antes: la tabla que trae ya está entrenada, pero las decisiones que tome en el salón se van guardando en la flash y se pueden mostrar con `Q_DUMP`.
