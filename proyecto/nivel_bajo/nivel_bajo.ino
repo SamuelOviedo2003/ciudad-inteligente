@@ -58,7 +58,7 @@ Timer tFase;
 const int NUM_ANUNCIOS = 4;
 int anuncioActual = 0;
 Timer tAnuncio;
-const double T_ANUNCIO = 3; // segundos
+const double T_ANUNCIO = 6; // segundos
 
 // Refresco de los valores del anuncio actual (para que reaccione en vivo a los sensores/botones)
 Timer tRefresco;

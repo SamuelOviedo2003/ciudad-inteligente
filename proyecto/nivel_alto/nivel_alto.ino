@@ -169,7 +169,7 @@ const double T_BLINK = 0.5;
 const int NUM_ANUNCIOS = 6;
 int anuncioActual = 0;
 Timer tAnuncio;
-const double T_ANUNCIO = 3;
+const double T_ANUNCIO = 6;
 Timer tRefresco;
 const double T_REFRESCO = 0.3;
 

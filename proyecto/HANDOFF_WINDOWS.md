@@ -16,11 +16,13 @@ Lo que ya está hecho y commiteado en `main`:
 **Binarios en `placa/`**: `nivel_medio.bin` y `nivel_bajo.bin` compilados con todo lo anterior (arduino-cli 1.5.1, core esp32 3.3.11, `CDCOnBoot=cdc`). `nivel_alto.bin` tiene la polaridad corregida pero **no** el comando `BOOTLOADER` (esa compilación se colgó); recompilar antes de usarlo.
 
 **Pendientes**:
-- Ver en hardware el modo demanda y la prueba del botón (en telemetría se confirmó el ciclo 7/2/7/2 y `p1=0 p2=0` en reposo, pero no una pulsación).
-- Sensor de CO2: lee 17000-20000 ppm constantes (ADC ~0,25 V), modo ECO siempre activo (verdes de 7 s). Revisar sensor/cable.
-- En una maqueta el CNY5 nunca registra (CNY6 sí). En la placa B (MAC 6B:D0:90) solo se vio responder P2.
+- ~~Ver en hardware el modo demanda y la prueba del botón~~ — confirmado en esta sesión (Mac): `p1=0 p2=0` en reposo en las dos placas, y presionando de verdad sí cortan el verde. `nivel_alto` corriendo en las dos con `nvs=1` (tabla recuperada de flash tras reinicio).
+- Sensor de CO2: lee 17000-20000 ppm constantes (ADC ~0,25 V), modo ECO siempre activo (verdes de 7-8 s). Revisar sensor/cable.
+- **Placa A (MAC 43:53:5C)**: los sensores `CNY2` y `CNY5` no registran nada (`CNY1`, `CNY3`, `CNY4`, `CNY6` sí, probado acercando un carrito blanco hasta casi tocar el sensor). Antes solo se había visto fallar `CNY5`; ahora también `CNY2`. Revisar cable/soldadura de esos dos, no es un problema de software (el mismo firmware lee bien los otros cuatro).
+- Los sensores CNY tienen rango de deteccion muy corto: un carrito "sobre la via" pero sin casi tocar el sensor no registra, aunque sea blanco. Acercarlo hasta el contacto.
 - El nivel alto no tiene modo demanda (el agente elige 3/5/8 s por vía); decidir si se quiere ahí también.
 - Los `code.bin` de Wokwi siguen con `P_ACTIVO LOW` porque el diagrama cablea los botones a tierra.
+- `T_ANUNCIO` (rotación de pantallas del LCD) subido de 3 a 6 s en los tres niveles, no alcanzaba a leerse.
 
 **Cómo leer/grabar desde Windows**: los COM cambian con el puerto USB (buscar VID 303A con pyserial). La telemetría por USB solo sale si el programa que abre el puerto levanta DTR (`miniterm` lo hace; con pyserial, `s.dtr = True`). Placas: A = MAC 34:85:18:43:53:5C, B = 34:85:18:6B:D0:90.
 
