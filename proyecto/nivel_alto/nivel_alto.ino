@@ -15,6 +15,9 @@
 #include <math.h>
 #include <Preferences.h>
 #include "TimerMEF.h"
+#ifdef ARDUINO_ARCH_ESP32
+#include "soc/rtc_cntl_reg.h" // comando BOOTLOADER (reinicio en modo de carga)
+#endif
 #ifndef SIN_TABLA_ENTRENADA
 #include "tabla_q.h"  // tabla entrenada offline por proyecto/sim/entrenar.sh
 #endif
@@ -534,6 +537,15 @@ void procesarComando(String linea) {
     ultimoPingMs = millis();
     puenteVisto = true;
     Serial.println("PONG");
+  } else if (linea == "BOOTLOADER") {
+    // Reinicia en modo de carga por USB (ROM download), para grabar con
+    // esptool --before no-reset sin tocar BOOT/RESET.
+    Serial.println("BOOTLOADER ok");
+#ifdef ARDUINO_ARCH_ESP32
+    delay(50);
+    REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+    esp_restart();
+#endif
   } else if (linea == "LLUVIA=1") {
     lluvia = true;
   } else if (linea == "LLUVIA=0") {

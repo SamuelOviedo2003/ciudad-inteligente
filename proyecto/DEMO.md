@@ -24,7 +24,7 @@ Qué mostrar:
 Qué decir: los mismos sensores ahora cambian los setpoints (auto-ajuste) según el contexto (conciencia del contexto), mediante modos de operación. Y el sistema recibe y envía información de internet por el serial con el computador, que es lo que pide la rúbrica.
 
 Qué mostrar, en este orden:
-1. Congestión: tapar dos CNY de una vía antes de su verde; el LCD dice `CONG1` y `dur:8.0s`.
+1. Demanda: tapar un CNY de la vía 1 y dejar la vía 2 vacía; la vía 1 se queda en verde (el LCD dice `DEMANDA`) hasta que se tape un CNY de la vía 2, y ahí cede el paso. Con un CNY tapado en cada vía, tapar dos de la vía 1 antes de su verde: el LCD dice `CONG1` y `dur:8.0s`.
 2. Peatón: presionar P1 en cualquier momento; queda `(esperando)` y el verde de S1 se corta a los 2 s como mínimo.
 3. Nocturno: tapar las dos LDR; ambos amarillos parpadean. Presionar un botón: el peatón tiene prioridad y el ciclo vuelve 20 s.
 4. Internet: con el puente corriendo, el LCD dice `PC: CONECTADO`; el clima real de Medellín llega como `LLUVIA=1` y alarga el amarillo. Tapar cuatro CNY en la otra maqueta: en esta llega `DET_REMOTO` y el verde se alarga 2 s aunque acá no haya tráfico. Enseñar el canal de ntfy.sh en el navegador.

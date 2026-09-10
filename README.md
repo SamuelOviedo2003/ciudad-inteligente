@@ -48,6 +48,15 @@ arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/<nivel>
 arduino-cli upload -p <puerto> --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/<nivel>
 ```
 
+Si `esptool` no logra reiniciar la placa solo ("Failed to connect... No serial data received", pasa en algunos puertos USB con este firmware), los tres sketches aceptan el comando serie `BOOTLOADER`, que reinicia la placa en modo de carga; después se graba con `--before no-reset --after watchdog-reset`. Desde Windows, con los binarios de `proyecto/placa/`:
+
+```powershell
+python -c "import serial,time; s=serial.Serial('COM9',115200); s.dtr=True; s.write(b'BOOTLOADER\n'); time.sleep(0.5)"
+python -m esptool --chip esp32s3 --port COM9 --before no-reset --after watchdog-reset --baud 460800 write-flash 0x0 proyecto\placa\bootloader.bin 0x8000 proyecto\placa\partitions.bin 0xe000 proyecto\placa\boot_app0.bin 0x10000 proyecto\placa\nivel_medio.bin
+```
+
+(El puerto COM puede cambiar al reiniciar; la telemetría por USB solo sale si el programa que abre el puerto levanta DTR, como hace `miniterm`.) La alternativa manual es mantener BOOT, tocar RESET y soltar BOOT.
+
 Los sketches usan `Serial.setTxTimeoutMs(0)` dentro de `#if ARDUINO_USB_CDC_ON_BOOT`, porque ese método solo existe en la clase `HWCDC` (USB) y no en `HardwareSerial` (UART); así el mismo código compila en las dos variantes (core esp32 3.3.11).
 
 Librerías necesarias en `~/Arduino/libraries/`: `LiquidCrystal I2C` (gestor de librerías) y `TimerMEF` (copiar el código de [`docs/software/timer-mef.md`](docs/software/timer-mef.md) a `TimerMEF/TimerMEF.h`).

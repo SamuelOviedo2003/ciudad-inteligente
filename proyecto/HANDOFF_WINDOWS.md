@@ -1,5 +1,29 @@
 # Traspaso: validación en las maquetas físicas desde Windows
 
+## Estado al 2026-09-10 (sesión en el Windows de David)
+
+Lo que ya está hecho y commiteado en `main`:
+
+- **Polaridad medida y corregida**: botones P1/P2 activos en HIGH (`P_ACTIVO HIGH` + `P_MODO` en los tres `.ino`); CNY correctos (LOW); LCD 20x4. Con la constante vieja cada verde se cortaba a los 2 s por un "peatón fantasma".
+- **Umbrales LDR** bajados a 150/250 (con luz de habitación una placa lee 250/330 y la otra 1550/300).
+- **Modo demanda en nivel medio**: la vía con autos conserva el verde mientras la otra esté vacía; la vía vacía cede el verde apenas cumple 2 s si la otra tiene un auto; el peatón sigue por encima. Telemetría `demanda=1`, LCD `DEMANDA`. Escenario `demanda` en `sim/test_medio.cpp`; `congestion` ahora pone tráfico en las dos vías.
+- **Comando serie `BOOTLOADER`** en los tres `.ino`: reinicia en modo de carga, porque en este Windows esptool no logra auto-resetear las placas (ver README raíz, sección "Para la placa física").
+- Arnés `sim/` independiente de la polaridad; `sim/run.sh` con 0 fallos (corrido en Windows con g++ de WinLibs vía winget, en Git Bash).
+- Puente ntfy probado de punta a punta con las dos maquetas (`TOPIC_RED` propio).
+
+**Qué hay cargado en las placas ahora mismo**: nivel medio con la polaridad corregida (commit 7d41206), **sin** modo demanda ni comando `BOOTLOADER`. Para cargar el `placa/nivel_medio.bin` actual hace falta una última vez el modo carga manual (mantener BOOT, tocar RESET, soltar BOOT) y luego `esptool --before no-reset --after watchdog-reset ...`; a partir de ahí ya sirve el comando `BOOTLOADER`.
+
+**Binarios en `placa/`**: `nivel_medio.bin` y `nivel_bajo.bin` compilados con todo lo anterior (arduino-cli 1.5.1, core esp32 3.3.11, `CDCOnBoot=cdc`). `nivel_alto.bin` tiene la polaridad corregida pero **no** el comando `BOOTLOADER` (esa compilación se colgó); recompilar antes de usarlo.
+
+**Pendientes**:
+- Ver en hardware el modo demanda y la prueba del botón (en telemetría se confirmó el ciclo 7/2/7/2 y `p1=0 p2=0` en reposo, pero no una pulsación).
+- Sensor de CO2: lee 17000-20000 ppm constantes (ADC ~0,25 V), modo ECO siempre activo (verdes de 7 s). Revisar sensor/cable.
+- En una maqueta el CNY5 nunca registra (CNY6 sí). En la placa B (MAC 6B:D0:90) solo se vio responder P2.
+- El nivel alto no tiene modo demanda (el agente elige 3/5/8 s por vía); decidir si se quiere ahí también.
+- Los `code.bin` de Wokwi siguen con `P_ACTIVO LOW` porque el diagrama cablea los botones a tierra.
+
+**Cómo leer/grabar desde Windows**: los COM cambian con el puerto USB (buscar VID 303A con pyserial). La telemetría por USB solo sale si el programa que abre el puerto levanta DTR (`miniterm` lo hace; con pyserial, `s.dtr = True`). Placas: A = MAC 34:85:18:43:53:5C, B = 34:85:18:6B:D0:90.
+
 Este documento es para un Claude Code (o una persona) trabajando en el **Windows que tiene las dos maquetas conectadas**. Todo el desarrollo y la verificación en simulación se hizo en otra máquina (Linux); acá solo falta lo que necesita hardware real. Leer primero [`DEMO.md`](DEMO.md) para el contexto general y [`../README.md`](../README.md) para el repo.
 
 ## Situación

@@ -14,7 +14,7 @@ g++ -std=gnu++17 -Wall -Wno-unused-function -I. -Ibuild -I../nivel_bajo -o build
 g++ -std=gnu++17 -Wall -Wno-unused-function -I. -Ibuild -I../nivel_alto -o build/sim_alto test_alto.cpp Arduino.cpp || exit 1
 
 fallos=0
-for e in baseline cny_polaridad congestion congestion_midfase eco wokwi_value_80 nocturno nocturno_histeresis \
+for e in baseline cny_polaridad congestion demanda congestion_midfase eco wokwi_value_80 nocturno nocturno_histeresis \
          peaton_libre peaton_trafico peaton_fuera_de_fase peaton_sostenido nocturno_peaton lluvia det_remoto ping telemetria lcd; do
   build/sim_medio "$e" || fallos=$((fallos + 1))
 done

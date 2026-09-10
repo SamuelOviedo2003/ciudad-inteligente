@@ -7,6 +7,9 @@
 #include <LiquidCrystal_I2C.h>
 #include <math.h>
 #include "TimerMEF.h"
+#ifdef ARDUINO_ARCH_ESP32
+#include "soc/rtc_cntl_reg.h" // comando BOOTLOADER (reinicio en modo de carga)
+#endif
 
 // --- Pines (segun esp_pruebas.ino) ---
 #define LDR1 12 // LDR semaforo 1, pin A0
@@ -274,6 +277,17 @@ void leerSerialEntrante() {
 }
 
 void procesarLineaRemota(const String &linea) {
+  if (linea == "BOOTLOADER") {
+    // Reinicia en modo de carga por USB (ROM download), para grabar con
+    // esptool --before no-reset sin tocar BOOT/RESET (ver README raiz).
+    Serial.println("BOOTLOADER ok");
+#ifdef ARDUINO_ARCH_ESP32
+    delay(50);
+    REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+    esp_restart();
+#endif
+    return;
+  }
   if (!linea.startsWith("{")) return; // fragmento incompleto, ignorar
   int idx = linea.indexOf("\"det\":");
   if (idx == -1) return;

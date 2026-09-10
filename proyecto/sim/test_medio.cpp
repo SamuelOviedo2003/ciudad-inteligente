@@ -84,22 +84,49 @@ int main(int argc, char** argv) {
     pin_level[CNY1] = LOW; pin_level[CNY5] = LOW; tick();
     CHECK(contarVehiculos1() == 1 && contarVehiculos2() == 1, "CNY en LOW cuenta como vehiculo");
   } else if (esc == "congestion") {
-    pin_level[CNY1] = LOW; pin_level[CNY2] = LOW;  // via 1 congestionada desde el arranque
+    // Con trafico en las dos vias (si una estuviera vacia actuaria el modo demanda, ver "demanda")
+    pin_level[CNY1] = LOW; pin_level[CNY2] = LOW; pin_level[CNY4] = LOW;  // via 1 congestionada, via 2 con 1 auto
     setup(); tick();
     CHECK_NEAR(measurePhase(), 8, 0.01, "A con 2 CNY de via 1 = 5+3 s");
     CHECK_NEAR(measurePhase(), 2, 0.01, "B sigue 2 s");
-    CHECK_NEAR(measurePhase(), 5, 0.01, "C (via 2 libre) sigue 5 s");
+    CHECK_NEAR(measurePhase(), 5, 0.01, "C (via 2 con 1 auto, sin congestion) sigue 5 s");
     runFor(0.5);  // ya en D
-    pin_level[CNY1] = HIGH; pin_level[CNY2] = HIGH; pin_level[CNY4] = LOW; pin_level[CNY5] = LOW; pin_level[CNY6] = LOW;
+    pin_level[CNY2] = HIGH; pin_level[CNY5] = LOW; pin_level[CNY6] = LOW;  // via 1 con 1 auto, via 2 con 3
     measurePhase();  // resto de D
-    CHECK_NEAR(measurePhase(), 5, 0.01, "A vuelve a 5 s al liberar via 1");
+    CHECK_NEAR(measurePhase(), 5, 0.01, "A vuelve a 5 s al bajar via 1 a 1 auto");
     measurePhase();
     CHECK_NEAR(measurePhase(), 8, 0.01, "C con 3 CNY de via 2 = 8 s");
+    CHECK(violaciones == 0, "sin violaciones de luces");
+  } else if (esc == "demanda") {
+    pin_level[CNY1] = LOW;  // via 1 con un auto, via 2 vacia
+    setup(); tick();
+    runFor(20);
+    CHECK(faseLuces() == 'A' && verdeSostenido, "via 1 con autos y via 2 vacia: A se sostiene mas alla de los 5 s (20 s y sigue)");
+    CHECK(serial_out.find("demanda=1") != std::string::npos && modoActualTexto().indexOf("DEMANDA") == 0, "telemetria demanda=1 y LCD 'DEMANDA'");
+    pin_level[CNY4] = LOW;  // llega un auto a la via 2
+    double resto = measurePhase();
+    CHECK_NEAR(resto, 0, 0.01, "llega un auto a la via 2: el verde sostenido termina en el acto");
+    CHECK(faseLuces() == 'B', "pasa por amarillo, no salta a rojo");
+    CHECK_NEAR(measurePhase(), 2, 0.01, "B = 2 s");
+    CHECK_NEAR(measurePhase(), 5, 0.01, "C con autos en las dos vias = 5 s normales");
+    measurePhase();  // D
+    CHECK(faseLuces() == 'A', "vuelve a A");
+    pin_level[CNY1] = HIGH;  // via 1 se vacia, via 2 sigue con su auto
+    resto = measurePhase();
+    CHECK_NEAR(resto, VERDE_MINIMO, 0.01, "via 1 vacia y via 2 con auto: A cede el verde apenas cumple el verde minimo");
+    measurePhase();  // B
+    runFor(20);
+    CHECK(faseLuces() == 'C' && verdeSostenido, "ahora es C la que se sostiene (via 2 con auto, via 1 vacia)");
+    pin_level[P2] = P_ACTIVO; runFor(0.3); pin_level[P2] = P_REPOSO;  // peaton pide cruzar la via 2
+    double tPress = t();
+    resto = measurePhase();
+    CHECK_NEAR(resto, MAX_ESPERA_PEATON - 0.3, 0.05, "el peaton corta el verde sostenido tras MAX_ESPERA_PEATON (hay trafico)");
+    (void)tPress;
     CHECK(violaciones == 0, "sin violaciones de luces");
   } else if (esc == "congestion_midfase") {
     setup(); tick();
     runFor(1.0);
-    pin_level[CNY1] = LOW; pin_level[CNY2] = LOW;  // llega trafico 1 s despues de empezar el verde
+    pin_level[CNY1] = LOW; pin_level[CNY2] = LOW; pin_level[CNY4] = LOW;  // llega trafico 1 s despues de empezar el verde (en las dos vias)
     double resto = measurePhase();
     CHECK_NEAR(resto + 1.0, 5, 0.02, "trafico que llega a mitad de verde NO extiende esa fase (se decide al entrar)");
     printf("  (LCD anuncio 0 dira 'CONG1' pero dur: sigue en 5.0 hasta la proxima A)\n");

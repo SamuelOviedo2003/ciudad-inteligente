@@ -11,6 +11,9 @@
 #include <LiquidCrystal_I2C.h>
 #include <math.h>
 #include "TimerMEF.h"
+#ifdef ARDUINO_ARCH_ESP32
+#include "soc/rtc_cntl_reg.h" // comando BOOTLOADER (reinicio en modo de carga)
+#endif
 
 // --- Pines (idénticos a nivel_bajo, misma maqueta) ---
 #define LDR1 12 // LDR semaforo 1, pin A0
@@ -118,6 +121,13 @@ bool peaton2Pedido = false;
 bool finDeFaseForzado = false; // un peaton pidio terminar la fase actual
 Timer tEspera1;
 Timer tEspera2;
+
+// --- Modo demanda (auto-optimizacion): una via con autos conserva el verde
+// mientras la otra este vacia (no hay a quien darle paso), y una via vacia
+// cede su verde en cuanto la otra tiene un auto, apenas cumple VERDE_MINIMO.
+// Con las dos vias vacias o las dos con autos, ciclo normal. El peaton sigue
+// por encima: gestionarPeatonX corta un verde sostenido como cualquier otro. ---
+bool verdeSostenido = false; // el verde actual se mantiene por demanda (LCD/telemetria)
 
 // --- Parpadeo del modo nocturno (ambos amarillos, independientes) ---
 Timer tBlink1;
@@ -250,9 +260,10 @@ void aplicarFase() {
 }
 
 void actualizarSemaforo() {
+  gestionarDemanda();
   gestionarPeaton1();
   gestionarPeaton2();
-  if (finDeFaseForzado || tFase > duracionFaseActual) {
+  if (finDeFaseForzado || (tFase > duracionFaseActual && !verdeSostenido)) {
     finDeFaseForzado = false;
     fase = (FaseSemaforo)((fase + 1) % 4);
     tFase = 0;
@@ -268,6 +279,19 @@ void registrarPeticionesPeatonales() {
 
 // Termina la fase actual en este mismo ciclo del loop (ver actualizarSemaforo).
 void cortarFase() { finDeFaseForzado = true; }
+
+// Modo demanda: solo actua en los verdes (A: via 1, C: via 2). Sostiene el
+// verde de la via que tiene autos si la otra esta vacia, y corta el verde de
+// una via vacia si la otra tiene autos. Si el verde sostenido deja de serlo
+// (llego un auto a la otra via) y ya cumplio su duracion, termina en el acto.
+void gestionarDemanda() {
+  verdeSostenido = false;
+  if (fase != FASE_A && fase != FASE_C) return;
+  int propia = (fase == FASE_A) ? contarVehiculos1() : contarVehiculos2();
+  int otra = (fase == FASE_A) ? contarVehiculos2() : contarVehiculos1();
+  if (propia > 0 && otra == 0) verdeSostenido = true;
+  else if (propia == 0 && otra > 0 && tFase >= VERDE_MINIMO) cortarFase();
+}
 
 // P1 se atiende cuando S1 esta en verde (fase A): corta el verde si la via 1
 // esta libre, o espera hasta MAX_ESPERA_PEATON si hay trafico; nunca antes de
@@ -365,6 +389,16 @@ void procesarComando(String linea) {
     ultimoPingMs = millis();
     puenteVisto = true;
     Serial.println("PONG");
+  } else if (linea == "BOOTLOADER") {
+    // Reinicia en modo de carga por USB (ROM download), para grabar con
+    // esptool --before no-reset sin tocar BOOT/RESET: en algunos puertos USB
+    // el auto-reset de esptool no funciona con este firmware.
+    Serial.println("BOOTLOADER ok");
+#ifdef ARDUINO_ARCH_ESP32
+    delay(50);
+    REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+    esp_restart();
+#endif
   } else if (linea == "LLUVIA=1") {
     lluvia = true;
   } else if (linea == "LLUVIA=0") {
@@ -405,6 +439,7 @@ void actualizarTelemetria() {
     Serial.print(" cny6="); Serial.print(vehiculoDetectado(CNY6));
     Serial.print(" det="); Serial.print(contarVehiculos1() + contarVehiculos2());
     Serial.print(" det_remoto="); Serial.print(detectadosRemoto);
+    Serial.print(" demanda="); Serial.print(verdeSostenido ? 1 : 0);
     Serial.print(" p1="); Serial.print(botonPresionado(P1) ? 1 : 0);
     Serial.print(" p2="); Serial.print(botonPresionado(P2) ? 1 : 0);
     Serial.print(" peaton1_espera="); Serial.print(peaton1Pedido ? 1 : 0);
@@ -418,6 +453,7 @@ void actualizarTelemetria() {
 String modoActualTexto() {
   if (modoNocturno) return "NOCTURNO";
   String s = "";
+  if (verdeSostenido) s += "DEMANDA+";
   if (contarVehiculos1() >= UMBRAL_CONGESTION) s += "CONG1+";
   if (contarVehiculos2() >= UMBRAL_CONGESTION) s += "CONG2+";
   if (leerCO2ppm() > UMBRAL_CO2_ECO) s += "ECO+";

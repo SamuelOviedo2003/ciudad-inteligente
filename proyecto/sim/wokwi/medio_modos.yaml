@@ -42,6 +42,11 @@ steps:
 
     '
 - wait-serial: det_remoto=5
+- name: un auto en la via 2 (CNY4), para que el modo demanda no sostenga el verde de la via 1
+  set-control:
+    part-id: btn8
+    control: pressed
+    value: 1
 - name: congestion local en via 1 (CNY1 y CNY2)
   set-control:
     part-id: btn5
