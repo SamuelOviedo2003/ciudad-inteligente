@@ -70,7 +70,7 @@ INTERVALO_PING_S = 2    # cada cuanto se le avisa al ESP32 que el puente sigue v
 # publico y adivinable por cualquiera: cambiar por uno propio del equipo
 # (ej. incluir su usuario de GitHub) para no chocar con otros grupos del
 # curso usando el mismo nombre por defecto.
-TOPIC_RED = "isa262-ciudad-autoadaptable-CAMBIAR-por-uno-propio"
+TOPIC_RED = "isa262-ciudad-autoadaptable-SamuelOviedo2003"
 # Limites de ntfy.sh (docs.ntfy.sh/publish/#limitations): 60 peticiones de
 # rafaga por IP, luego se repone 1 cada 5 s, y 250 mensajes publicados por dia.
 # Publicar una vez por segundo (una version anterior lo hacia) agota la rafaga
