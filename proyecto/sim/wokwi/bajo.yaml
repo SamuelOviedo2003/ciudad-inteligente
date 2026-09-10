@@ -1,0 +1,44 @@
+name: nivel bajo - ciclo fijo, sensores solo se muestran
+version: 1
+steps:
+- name: arranca en A (S1 verde, S2 rojo)
+  wait-serial: '"fase":"A"'
+- expect-pin:
+    part-id: esp
+    pin: '6'
+    value: 1
+- expect-pin:
+    part-id: esp
+    pin: '7'
+    value: 1
+- name: CNY1 y P2 se reflejan en la telemetria
+  set-control:
+    part-id: btn5
+    control: pressed
+    value: 1
+- set-control:
+    part-id: P2
+    control: pressed
+    value: 1
+- wait-serial: '"det":1'
+- wait-serial: '"p2":1'
+- name: el ciclo sigue igual con sensores activos, B luego C (S2 verde, S1 rojo)
+  wait-serial: '"fase":"B"'
+- wait-serial: '"fase":"C"'
+- expect-pin:
+    part-id: esp
+    pin: '16'
+    value: 1
+- expect-pin:
+    part-id: esp
+    pin: '5'
+    value: 1
+- expect-pin:
+    part-id: esp
+    pin: '6'
+    value: 0
+- name: conteo de la otra maqueta por serial
+  write-serial: '{"fase":"A","det":3}'
+- write-serial: '
+
+    '

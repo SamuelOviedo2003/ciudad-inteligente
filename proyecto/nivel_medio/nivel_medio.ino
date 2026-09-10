@@ -31,6 +31,20 @@
 #define LY2 15
 #define LG2 16
 
+// Nivel electrico que un CNY reporta cuando SI detecta un vehiculo. En el
+// diagrama de Wokwi los CNY van a tierra con pull-up (reposo = HIGH, al
+// "presionar"/detectar bajan a LOW) -> aqui va LOW. Al pasar a la maqueta
+// fisica, verificar que nivel entrega el modulo CNY70 real al detectar un
+// objeto y ajustar unicamente esta constante si hace falta.
+#define CNY_ACTIVO LOW
+
+// Nivel electrico de un boton peatonal presionado. En Wokwi los botones van a
+// tierra y el pin usa el pull-up interno (reposo = HIGH, presionado = LOW). El
+// codigo de pruebas del curso (esp_pruebas.ino) los lee como INPUT sin pull-up,
+// asi que en la maqueta fisica pueden estar cableados al reves: verificar con
+// ese sketch (muestra P1/P2 en el LCD) y ajustar solo esta constante.
+#define P_ACTIVO LOW
+
 // --- Calibracion CO2 (identica a nivel_bajo) ---
 const float DC_GAIN = 8.5;
 const float ZERO_POINT_VOLTAGE = 0.265;
@@ -46,10 +60,18 @@ const double T_AMARILLO_BASE = 2;   // segundos
 const double BONUS_CONGESTION = 3;  // seg. extra de verde si la via tiene trafico
 const double BONUS_ECO = 2;         // seg. extra de verde si el CO2 esta alto (menos frenadas/arrancadas)
 const double BONUS_LLUVIA = 1;      // seg. extra de amarillo si el puente reporta lluvia real
+const double BONUS_RED = 2;         // seg. extra de verde si la OTRA maqueta (via internet) esta muy congestionada
 const int UMBRAL_CONGESTION = 2;    // CNY activos (de 3) para considerar una via "congestionada"
+const int UMBRAL_CONGESTION_RED = 4; // conteo remoto (0-6) para considerar congestionada a la otra maqueta
 const int UMBRAL_CO2_ECO = 800;     // ppm
-const int UMBRAL_OSCURIDAD = 800;   // lectura LDR (0-4095) por debajo de esto = "de noche"
-const double MAX_ESPERA_PEATON = 12; // seg.: garantiza el cruce aunque haya trafico (self-regulation)
+// Histeresis del modo nocturno: entra cuando ambos LDR bajan de UMBRAL_NOCHE_ENTRA
+// y solo sale cuando alguno supera UMBRAL_NOCHE_SALE. Con un solo umbral, el
+// ruido del ADC alrededor de ese valor hacia entrar y salir del nocturno varias
+// veces por segundo, reiniciando el ciclo en fase A cada vez.
+const int UMBRAL_NOCHE_ENTRA = 800;  // lectura LDR (0-4095)
+const int UMBRAL_NOCHE_SALE = 1000;
+const double VERDE_MINIMO = 2;       // seg.: un peaton nunca corta un verde antes de esto
+const double MAX_ESPERA_PEATON = 6;  // seg.: con trafico, el peaton espera como mucho esto (self-regulation)
 
 enum FaseSemaforo { FASE_A, FASE_B, FASE_C, FASE_D };
 FaseSemaforo fase = FASE_A;
@@ -57,13 +79,38 @@ Timer tFase;
 double duracionFaseActual = T_VERDE_BASE;
 
 // --- Modos de operacion (SOM): cambian que setpoints se usan ---
+// Prioridad explicita entre modos: PEATONAL > NOCTURNO > (congestion/eco/lluvia,
+// que no son modos aparte, solo ajustan la duracion dentro del ciclo normal).
+// Sin esta regla, un peaton que presiona el boton de noche quedaba ignorado
+// porque el modo nocturno nunca llamaba a la logica peatonal.
 bool modoNocturno = false;
+bool nocturnoSuspendido = false; // true mientras se atiende a un peaton de noche
+Timer tSuspenderNocturno;
+const double SUSPENSION_NOCTURNO = 20; // seg: tiempo para un ciclo completo antes de reevaluar oscuridad
 bool lluvia = false; // llega por Serial desde puente_serial.py (clima real de internet)
 
-// --- Peticion peatonal: corta el verde actual si la via esta libre, o
-// espera hasta un maximo si hay trafico (nunca dejan al peaton sin cruzar) ---
-bool peaton1Esperando = false;
-bool peaton2Esperando = false;
+// --- Coordinacion con la OTRA maqueta de ciudad, vía internet (no USB directo
+// como en nivel_bajo): puente_serial.py publica el conteo local en un topico
+// de ntfy.sh y recibe de vuelta el de la otra maqueta. Es la "amplificacion de
+// autoadaptabilidad" especifica de nivel medio: la vía extiende su verde no
+// solo por su propio trafico, sino por saber que la otra interseccion de la
+// ciudad esta congestionada, sin cablear las dos maquetas entre si. ---
+int detectadosRemoto = 0; // ultimo conteo (0-6) recibido de la otra maqueta
+// El puente de la otra maqueta republica su conteo al menos cada 2 min
+// (latido). Si en 5 min no llega nada, la otra maqueta o su puente se
+// apagaron: se descarta el conteo para no seguir extendiendo el verde por una
+// congestion que ya nadie confirma.
+unsigned long ultimoRemotoMs = 0;
+const unsigned long CADUCIDAD_REMOTO_MS = 300000;
+
+// --- Peticion peatonal. La pulsacion se memoriza (como el boton de un cruce
+// real) en cualquier fase y modo; se atiende cuando su semaforo esta en verde:
+// se corta el verde si la via esta libre, o se espera hasta un maximo si hay
+// trafico, pero nunca antes de VERDE_MINIMO. La peticion se borra cuando el
+// semaforo del peaton llega a rojo (ahi cruza). ---
+bool peaton1Pedido = false;
+bool peaton2Pedido = false;
+bool finDeFaseForzado = false; // un peaton pidio terminar la fase actual
 Timer tEspera1;
 Timer tEspera2;
 
@@ -86,6 +133,7 @@ const double T_REFRESCO = 0.3;
 Timer tTelemetria;
 const double T_TELEMETRIA = 1;
 unsigned long ultimoPingMs = 0;
+bool puenteVisto = false; // sin esto, ultimoPingMs=0 se leia como "conectado" los primeros 5 s
 const unsigned long TIMEOUT_PC_MS = 5000;
 String bufferSerial = "";
 
@@ -108,7 +156,14 @@ void setup() {
 
   apagarSemaforos();
 
-  Serial.begin(9600);
+  // Placa fisica: compilar con CDCOnBoot=cdc (Serial = HWCDC, el USB nativo);
+  // setTxTimeoutMs(0) evita que el loop se bloquee si el puerto USB esta
+  // abierto pero nadie lo lee. Wokwi: compilar SIN esa opcion, porque su
+  // monitor serial esta en el UART0 y con cdc no se ve nada del sketch.
+#if ARDUINO_USB_CDC_ON_BOOT
+  Serial.setTxTimeoutMs(0);
+#endif
+  Serial.begin(115200);
   lcd.init();
   lcd.backlight();
 
@@ -116,12 +171,15 @@ void setup() {
   tAnuncio = 0;
   tRefresco = 0;
   tTelemetria = 0;
+  tSuspenderNocturno = 0;
   aplicarFase();
   mostrarAnuncio();
 }
 
 void loop() {
   leerComandosSerial();
+  caducarConteoRemoto();
+  registrarPeticionesPeatonales();
   actualizarModoNocturno();
   if (modoNocturno) {
     actualizarParpadeoNocturno();
@@ -144,8 +202,19 @@ void apagarSemaforos() {
   digitalWrite(LG2, LOW);
 }
 
-int contarVehiculos1() { return digitalRead(CNY1) + digitalRead(CNY2) + digitalRead(CNY3); }
-int contarVehiculos2() { return digitalRead(CNY4) + digitalRead(CNY5) + digitalRead(CNY6); }
+// CNY: en la maqueta van a tierra con pull-up, es decir que en reposo (nada
+// detectado) leen HIGH y solo bajan a LOW cuando detectan un objeto. Por eso
+// "detectado" se define como LOW, no HIGH (si se invirtiera, la via se veria
+// "congestionada" todo el tiempo con solo dejar la maqueta quieta).
+bool vehiculoDetectado(int pin) { return digitalRead(pin) == CNY_ACTIVO; }
+bool botonPresionado(int pin) { return digitalRead(pin) == P_ACTIVO; }
+
+int contarVehiculos1() {
+  return vehiculoDetectado(CNY1) + vehiculoDetectado(CNY2) + vehiculoDetectado(CNY3);
+}
+int contarVehiculos2() {
+  return vehiculoDetectado(CNY4) + vehiculoDetectado(CNY5) + vehiculoDetectado(CNY6);
+}
 
 void aplicarFase() {
   apagarSemaforos();
@@ -155,6 +224,7 @@ void aplicarFase() {
       duracionFaseActual = T_VERDE_BASE;
       if (contarVehiculos1() >= UMBRAL_CONGESTION) duracionFaseActual += BONUS_CONGESTION;
       if (leerCO2ppm() > UMBRAL_CO2_ECO) duracionFaseActual += BONUS_ECO;
+      if (detectadosRemoto >= UMBRAL_CONGESTION_RED) duracionFaseActual += BONUS_RED;
       break;
     case FASE_B: // S1 amarillo, S2 rojo
       digitalWrite(LY1, HIGH); digitalWrite(LR2, HIGH);
@@ -165,6 +235,7 @@ void aplicarFase() {
       duracionFaseActual = T_VERDE_BASE;
       if (contarVehiculos2() >= UMBRAL_CONGESTION) duracionFaseActual += BONUS_CONGESTION;
       if (leerCO2ppm() > UMBRAL_CO2_ECO) duracionFaseActual += BONUS_ECO;
+      if (detectadosRemoto >= UMBRAL_CONGESTION_RED) duracionFaseActual += BONUS_RED;
       break;
     case FASE_D: // S1 rojo, S2 amarillo
       digitalWrite(LR1, HIGH); digitalWrite(LY2, HIGH);
@@ -176,56 +247,77 @@ void aplicarFase() {
 void actualizarSemaforo() {
   gestionarPeaton1();
   gestionarPeaton2();
-  if (tFase > duracionFaseActual) {
+  if (finDeFaseForzado || tFase > duracionFaseActual) {
+    finDeFaseForzado = false;
     fase = (FaseSemaforo)((fase + 1) % 4);
     tFase = 0;
     aplicarFase();
   }
 }
 
-// Si P1 pide cruzar mientras S1 esta en verde: corta el verde de inmediato
-// si la via ya esta libre de autos, o espera hasta MAX_ESPERA_PEATON si hay
-// trafico (nunca lo deja esperando indefinidamente).
+// Memoriza las pulsaciones en cualquier fase y modo (incluido el nocturno).
+void registrarPeticionesPeatonales() {
+  if (botonPresionado(P1) && !peaton1Pedido) { peaton1Pedido = true; tEspera1 = 0; }
+  if (botonPresionado(P2) && !peaton2Pedido) { peaton2Pedido = true; tEspera2 = 0; }
+}
+
+// Termina la fase actual en este mismo ciclo del loop (ver actualizarSemaforo).
+void cortarFase() { finDeFaseForzado = true; }
+
+// P1 se atiende cuando S1 esta en verde (fase A): corta el verde si la via 1
+// esta libre, o espera hasta MAX_ESPERA_PEATON si hay trafico; nunca antes de
+// VERDE_MINIMO. En fase C S1 esta en rojo: el peaton cruza y la peticion se borra.
 void gestionarPeaton1() {
-  if (fase != FASE_A) { peaton1Esperando = false; return; }
-  if (digitalRead(P1) == LOW && !peaton1Esperando) {
-    peaton1Esperando = true;
-    tEspera1 = 0;
-  }
-  if (!peaton1Esperando) return;
+  if (fase == FASE_C) { peaton1Pedido = false; return; }
+  if (fase != FASE_A || !peaton1Pedido) return;
+  if (tFase < VERDE_MINIMO) return;
   bool viaLibre = (contarVehiculos1() == 0);
   bool esperoDemasiado = (tEspera1 > MAX_ESPERA_PEATON);
-  if (viaLibre || esperoDemasiado) {
-    tFase = duracionFaseActual + 1; // fuerza el fin de la fase en el proximo ciclo
-    peaton1Esperando = false;
-  }
+  if (viaLibre || esperoDemasiado) cortarFase();
 }
 
 void gestionarPeaton2() {
-  if (fase != FASE_C) { peaton2Esperando = false; return; }
-  if (digitalRead(P2) == LOW && !peaton2Esperando) {
-    peaton2Esperando = true;
-    tEspera2 = 0;
-  }
-  if (!peaton2Esperando) return;
+  if (fase == FASE_A) { peaton2Pedido = false; return; }
+  if (fase != FASE_C || !peaton2Pedido) return;
+  if (tFase < VERDE_MINIMO) return;
   bool viaLibre = (contarVehiculos2() == 0);
   bool esperoDemasiado = (tEspera2 > MAX_ESPERA_PEATON);
-  if (viaLibre || esperoDemasiado) {
-    tFase = duracionFaseActual + 1;
-    peaton2Esperando = false;
-  }
+  if (viaLibre || esperoDemasiado) cortarFase();
 }
 
 // --- Modo nocturno: si ambos LDR estan oscuros, se reemplaza el ciclo de 4
-// fases por ambos amarillos parpadeando (como un semaforo real de madrugada) ---
+// fases por ambos amarillos parpadeando (como un semaforo real de madrugada).
+// Prioridad: un peaton pidiendo cruzar interrumpe el nocturno de inmediato
+// (si no, quedaria ignorado, ya que el nocturno no corre gestionarPeatonX). ---
 void actualizarModoNocturno() {
-  bool oscuro = (analogRead(LDR1) < UMBRAL_OSCURIDAD) && (analogRead(LDR2) < UMBRAL_OSCURIDAD);
+  bool peatonPide = peaton1Pedido || peaton2Pedido;
+  if (modoNocturno && peatonPide) {
+    modoNocturno = false;
+    nocturnoSuspendido = true;
+    tSuspenderNocturno = 0;
+    fase = FASE_A;
+    tFase = 0;
+    aplicarFase();
+    return;
+  }
+  if (nocturnoSuspendido) {
+    if (tSuspenderNocturno > SUSPENSION_NOCTURNO) {
+      nocturnoSuspendido = false; // ya se le dio un ciclo completo al peaton, se reevalua la oscuridad
+    } else {
+      return; // no reevaluar oscuridad todavia, dejar correr el ciclo normal
+    }
+  }
+  int l1 = analogRead(LDR1), l2 = analogRead(LDR2);
+  bool oscuro = (l1 < UMBRAL_NOCHE_ENTRA) && (l2 < UMBRAL_NOCHE_ENTRA);
+  bool claro = (l1 > UMBRAL_NOCHE_SALE) || (l2 > UMBRAL_NOCHE_SALE);
   if (oscuro && !modoNocturno) {
     modoNocturno = true;
     apagarSemaforos();
+    blink1 = false;
+    blink2 = false;
     tBlink1 = 0;
     tBlink2 = 0;
-  } else if (!oscuro && modoNocturno) {
+  } else if (claro && modoNocturno) {
     modoNocturno = false;
     fase = FASE_A;
     tFase = 0;
@@ -258,6 +350,7 @@ void leerComandosSerial() {
       bufferSerial = "";
     } else if (c != '\r') {
       bufferSerial += c;
+      if (bufferSerial.length() > 200) bufferSerial = ""; // linea corrupta o sin terminar, descartar
     }
   }
 }
@@ -265,16 +358,26 @@ void leerComandosSerial() {
 void procesarComando(String linea) {
   if (linea == "PING") {
     ultimoPingMs = millis();
+    puenteVisto = true;
     Serial.println("PONG");
   } else if (linea == "LLUVIA=1") {
     lluvia = true;
   } else if (linea == "LLUVIA=0") {
     lluvia = false;
+  } else if (linea.startsWith("DET_REMOTO=")) {
+    detectadosRemoto = linea.substring(11).toInt();
+    ultimoRemotoMs = millis();
+  }
+}
+
+void caducarConteoRemoto() {
+  if (detectadosRemoto > 0 && millis() - ultimoRemotoMs > CADUCIDAD_REMOTO_MS) {
+    detectadosRemoto = 0;
   }
 }
 
 bool conectadoAlPuente() {
-  return (millis() - ultimoPingMs) < TIMEOUT_PC_MS;
+  return puenteVisto && (millis() - ultimoPingMs) < TIMEOUT_PC_MS;
 }
 
 // Protocolo de salida (ESP32 -> PC), telemetria en texto plano cada
@@ -289,16 +392,18 @@ void actualizarTelemetria() {
     Serial.print(" co2="); Serial.print((int)leerCO2ppm());
     Serial.print(" ldr1="); Serial.print(analogRead(LDR1));
     Serial.print(" ldr2="); Serial.print(analogRead(LDR2));
-    Serial.print(" cny1="); Serial.print(digitalRead(CNY1));
-    Serial.print(" cny2="); Serial.print(digitalRead(CNY2));
-    Serial.print(" cny3="); Serial.print(digitalRead(CNY3));
-    Serial.print(" cny4="); Serial.print(digitalRead(CNY4));
-    Serial.print(" cny5="); Serial.print(digitalRead(CNY5));
-    Serial.print(" cny6="); Serial.print(digitalRead(CNY6));
-    Serial.print(" p1="); Serial.print(digitalRead(P1) == LOW ? 1 : 0);
-    Serial.print(" p2="); Serial.print(digitalRead(P2) == LOW ? 1 : 0);
-    Serial.print(" peaton1_espera="); Serial.print(peaton1Esperando ? 1 : 0);
-    Serial.print(" peaton2_espera="); Serial.print(peaton2Esperando ? 1 : 0);
+    Serial.print(" cny1="); Serial.print(vehiculoDetectado(CNY1));
+    Serial.print(" cny2="); Serial.print(vehiculoDetectado(CNY2));
+    Serial.print(" cny3="); Serial.print(vehiculoDetectado(CNY3));
+    Serial.print(" cny4="); Serial.print(vehiculoDetectado(CNY4));
+    Serial.print(" cny5="); Serial.print(vehiculoDetectado(CNY5));
+    Serial.print(" cny6="); Serial.print(vehiculoDetectado(CNY6));
+    Serial.print(" det="); Serial.print(contarVehiculos1() + contarVehiculos2());
+    Serial.print(" det_remoto="); Serial.print(detectadosRemoto);
+    Serial.print(" p1="); Serial.print(botonPresionado(P1) ? 1 : 0);
+    Serial.print(" p2="); Serial.print(botonPresionado(P2) ? 1 : 0);
+    Serial.print(" peaton1_espera="); Serial.print(peaton1Pedido ? 1 : 0);
+    Serial.print(" peaton2_espera="); Serial.print(peaton2Pedido ? 1 : 0);
     Serial.print(" lluvia="); Serial.print(lluvia ? 1 : 0);
     Serial.print(" nocturno="); Serial.println(modoNocturno ? 1 : 0);
   }
@@ -312,6 +417,7 @@ String modoActualTexto() {
   if (contarVehiculos2() >= UMBRAL_CONGESTION) s += "CONG2+";
   if (leerCO2ppm() > UMBRAL_CO2_ECO) s += "ECO+";
   if (lluvia) s += "LLUVIA+";
+  if (detectadosRemoto >= UMBRAL_CONGESTION_RED) s += "RED+";
   if (s == "") return "NORMAL";
   s.remove(s.length() - 1); // quita el '+' final
   return s;
@@ -335,56 +441,55 @@ void actualizarRefresco() {
   }
 }
 
+// Escribe una fila completa (20 columnas, rellena o recorta) sin lcd.clear():
+// borrar la pantalla cada 0.3 s se ve como parpadeo en un LCD real.
+void filaLCD(int fila, String texto) {
+  if (texto.length() > 20) texto.remove(20);
+  while (texto.length() < 20) texto += ' ';
+  lcd.setCursor(0, fila);
+  lcd.print(texto);
+}
+
 void mostrarAnuncio() {
-  lcd.clear();
   if (modoNocturno) {
-    lcd.setCursor(0, 0); lcd.print("MODO NOCTURNO");
-    lcd.setCursor(0, 1); lcd.print("Ambos semaforos");
-    lcd.setCursor(0, 2); lcd.print("parpadean en amarillo");
-    lcd.setCursor(0, 3); lcd.print("LDR1:"); lcd.print(analogRead(LDR1));
-    lcd.print(" LDR2:"); lcd.print(analogRead(LDR2));
+    filaLCD(0, "MODO NOCTURNO");
+    filaLCD(1, "Ambos semaforos");
+    filaLCD(2, "parpadean amarillo");
+    filaLCD(3, String("LDR1:") + analogRead(LDR1) + " LDR2:" + analogRead(LDR2));
     return;
   }
   switch (anuncioActual) {
-    case 0: { // Modo de operacion activo y estado del puente con el computador
-      lcd.setCursor(0, 0); lcd.print("MODO DE OPERACION");
-      lcd.setCursor(0, 1); lcd.print(modoActualTexto());
-      lcd.setCursor(0, 2); lcd.print("Fase "); lcd.print("ABCD"[fase]);
-      lcd.print(" dur:"); lcd.print(duracionFaseActual, 1); lcd.print("s");
-      lcd.setCursor(0, 3);
-      lcd.print(conectadoAlPuente() ? "PC: CONECTADO" : "PC: SIN CONEXION");
+    case 0: // Modo de operacion activo y estado del puente con el computador
+      filaLCD(0, "MODO DE OPERACION");
+      filaLCD(1, modoActualTexto());
+      filaLCD(2, String("Fase ") + "ABCD"[fase] + " dur:" + String(duracionFaseActual, 1) + "s");
+      filaLCD(3, conectadoAlPuente() ? "PC: CONECTADO" : "PC: SIN CONEXION");
       break;
-    }
     case 1: { // CO2 / modo eco
       float ppm = leerCO2ppm();
-      lcd.setCursor(0, 0); lcd.print("CALIDAD DEL AIRE");
-      lcd.setCursor(0, 1); lcd.print("CO2: "); lcd.print((int)ppm); lcd.print(" ppm");
-      lcd.setCursor(0, 2); lcd.print(ppm > UMBRAL_CO2_ECO ? "MODO ECO: activo" : "MODO ECO: normal");
+      filaLCD(0, "CALIDAD DEL AIRE");
+      filaLCD(1, String("CO2: ") + (int)ppm + " ppm");
+      filaLCD(2, ppm > UMBRAL_CO2_ECO ? "MODO ECO: activo" : "MODO ECO: normal");
+      filaLCD(3, "");
       break;
     }
-    case 2: { // LDR / modo nocturno
-      lcd.setCursor(0, 0); lcd.print("LUZ AMBIENTE");
-      lcd.setCursor(0, 1); lcd.print("S1: "); lcd.print(analogRead(LDR1));
-      lcd.setCursor(0, 2); lcd.print("S2: "); lcd.print(analogRead(LDR2));
-      lcd.setCursor(0, 3); lcd.print("Umbral noche: "); lcd.print(UMBRAL_OSCURIDAD);
+    case 2: // LDR / modo nocturno
+      filaLCD(0, "LUZ AMBIENTE");
+      filaLCD(1, String("S1: ") + analogRead(LDR1));
+      filaLCD(2, String("S2: ") + analogRead(LDR2));
+      filaLCD(3, String("Noche<") + UMBRAL_NOCHE_ENTRA + " Dia>" + UMBRAL_NOCHE_SALE);
       break;
-    }
-    case 3: { // CNY / congestion por via
-      lcd.setCursor(0, 0); lcd.print("TRAFICO POR VIA");
-      lcd.setCursor(0, 1); lcd.print("Via1: "); lcd.print(contarVehiculos1()); lcd.print("/3 ");
-      lcd.print(contarVehiculos1() >= UMBRAL_CONGESTION ? "CONGESTION" : "");
-      lcd.setCursor(0, 2); lcd.print("Via2: "); lcd.print(contarVehiculos2()); lcd.print("/3 ");
-      lcd.print(contarVehiculos2() >= UMBRAL_CONGESTION ? "CONGESTION" : "");
+    case 3: // CNY / congestion por via
+      filaLCD(0, "TRAFICO POR VIA");
+      filaLCD(1, String("Via1: ") + contarVehiculos1() + "/3 " + (contarVehiculos1() >= UMBRAL_CONGESTION ? "CONGESTION" : ""));
+      filaLCD(2, String("Via2: ") + contarVehiculos2() + "/3 " + (contarVehiculos2() >= UMBRAL_CONGESTION ? "CONGESTION" : ""));
+      filaLCD(3, String("Otra maqueta: ") + detectadosRemoto + "/6");
       break;
-    }
-    case 4: { // Peatones y clima recibido por el puente
-      lcd.setCursor(0, 0); lcd.print("BOTON PEATONAL");
-      lcd.setCursor(0, 1); lcd.print("P1:"); lcd.print(digitalRead(P1) == LOW ? "SI" : "NO");
-      lcd.print(peaton1Esperando ? " (esperando)" : "");
-      lcd.setCursor(0, 2); lcd.print("P2:"); lcd.print(digitalRead(P2) == LOW ? "SI" : "NO");
-      lcd.print(peaton2Esperando ? " (esperando)" : "");
-      lcd.setCursor(0, 3); lcd.print(lluvia ? "CLIMA: LLUVIA" : "CLIMA: despejado");
+    case 4: // Peatones y clima recibido por el puente
+      filaLCD(0, "BOTON PEATONAL");
+      filaLCD(1, String("P1:") + (botonPresionado(P1) ? "SI" : "NO") + (peaton1Pedido ? " (esperando)" : ""));
+      filaLCD(2, String("P2:") + (botonPresionado(P2) ? "SI" : "NO") + (peaton2Pedido ? " (esperando)" : ""));
+      filaLCD(3, lluvia ? "CLIMA: LLUVIA" : "CLIMA: despejado");
       break;
-    }
   }
 }

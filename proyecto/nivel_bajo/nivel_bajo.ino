@@ -27,6 +27,13 @@
 #define LY2 15
 #define LG2 16
 
+// Nivel electrico de un boton peatonal presionado. En Wokwi los botones van a
+// tierra y el pin usa el pull-up interno (reposo = HIGH, presionado = LOW). El
+// codigo de pruebas del curso (esp_pruebas.ino) los lee como INPUT sin pull-up,
+// asi que en la maqueta fisica pueden estar cableados al reves: verificar con
+// ese sketch (muestra P1/P2 en el LCD) y ajustar solo esta constante.
+#define P_ACTIVO LOW
+
 // --- Calibracion CO2 (identica a esp_pruebas.ino) ---
 const float DC_GAIN = 8.5;
 const float ZERO_POINT_VOLTAGE = 0.265;
@@ -53,6 +60,18 @@ const double T_ANUNCIO = 3; // segundos
 Timer tRefresco;
 const double T_REFRESCO = 0.3; // segundos
 
+// Telemetria por Serial (solo lectura, no controla nada del semaforo/LCD)
+Timer tTelemetria;
+const double T_TELEMETRIA = 1; // segundos
+
+// Conteo combinado de vehiculos entre esta maqueta y la otra, via puente_serial.py
+// (ver proyecto/puente_serial/). "remoto" es el ultimo valor recibido de la otra
+// placa; si el puente no esta corriendo, se queda en 0 y el total es solo el local.
+const int NUM_MAQUINAS = 2;
+const int CNY_POR_MAQUINA = 6;
+int detectadosRemoto = 0;
+String bufferSerial = "";
+
 void setup() {
   pinMode(P1, INPUT_PULLUP); // sin resistencia externa en el diagrama, se usa el pull-up interno
   pinMode(P2, INPUT_PULLUP); // presionado = LOW, suelto = HIGH
@@ -72,13 +91,17 @@ void setup() {
 
   apagarSemaforos();
 
-  Serial.begin(9600);
+#if ARDUINO_USB_CDC_ON_BOOT // placa fisica (CDCOnBoot=cdc): no bloquear el loop si nadie lee el USB
+  Serial.setTxTimeoutMs(0);   // Wokwi: compilar sin cdc, su monitor esta en el UART0
+#endif
+  Serial.begin(115200);
   lcd.init();
   lcd.backlight();
 
   tFase = 0;
   tAnuncio = 0;
   tRefresco = 0;
+  tTelemetria = 0;
   aplicarFase();
   mostrarAnuncio();
 }
@@ -87,6 +110,8 @@ void loop() {
   actualizarSemaforo();
   actualizarAnuncio();
   actualizarRefresco();
+  actualizarTelemetria();
+  leerSerialEntrante();
 }
 
 // --- Semaforo: MEF de 4 fases, tiempos fijos, no depende de sensores ---
@@ -116,6 +141,14 @@ void actualizarSemaforo() {
     tFase = 0;
     aplicarFase();
   }
+}
+
+bool botonPresionado(int pin) { return digitalRead(pin) == P_ACTIVO; }
+
+// CNY1..CNY6: en reposo (sin objeto) quedan en HIGH; LOW = objeto blanco detectado
+int contarDetectadosLocal() {
+  return (digitalRead(CNY1) == LOW) + (digitalRead(CNY2) == LOW) + (digitalRead(CNY3) == LOW) +
+         (digitalRead(CNY4) == LOW) + (digitalRead(CNY5) == LOW) + (digitalRead(CNY6) == LOW);
 }
 
 // --- CO2 en ppm, misma formula que esp_pruebas.ino ---
@@ -163,18 +196,85 @@ void mostrarAnuncio() {
       lcd.setCursor(0, 2); lcd.print("Semaforo 2: "); lcd.print(l2);
       break;
     }
-    case 2: { // CNY1..CNY6 (nota: verificar en la maqueta real si HIGH o LOW es "detectado")
-      int detectados = digitalRead(CNY1) + digitalRead(CNY2) + digitalRead(CNY3) +
-                        digitalRead(CNY4) + digitalRead(CNY5) + digitalRead(CNY6);
+    case 2: { // CNY1..CNY6 locales + los de la otra maqueta (recibidos por el puente serial)
+      int total = contarDetectadosLocal() + detectadosRemoto;
       lcd.setCursor(0, 0); lcd.print("VEHICULOS EN VIA");
-      lcd.setCursor(0, 1); lcd.print("Detectados: "); lcd.print(detectados); lcd.print("/6");
+      lcd.setCursor(0, 1); lcd.print("Detectados: "); lcd.print(total);
+      lcd.print("/"); lcd.print(NUM_MAQUINAS * CNY_POR_MAQUINA);
       break;
     }
     case 3: { // P1, P2 (con INPUT_PULLUP: presionado = LOW/0, suelto = HIGH/1)
       lcd.setCursor(0, 0); lcd.print("BOTON PEATONAL");
-      lcd.setCursor(0, 1); lcd.print("P1:"); lcd.print(digitalRead(P1) == LOW ? "SI" : "NO");
-      lcd.setCursor(9, 1); lcd.print("P2:"); lcd.print(digitalRead(P2) == LOW ? "SI" : "NO");
+      lcd.setCursor(0, 1); lcd.print("P1:"); lcd.print(botonPresionado(P1) ? "SI" : "NO");
+      lcd.setCursor(9, 1); lcd.print("P2:"); lcd.print(botonPresionado(P2) ? "SI" : "NO");
       break;
     }
   }
+}
+
+// --- Telemetria: una linea JSON por segundo, solo lectura, no controla nada ---
+const char* nombreFase(FaseSemaforo f) {
+  switch (f) {
+    case FASE_A: return "A";
+    case FASE_B: return "B";
+    case FASE_C: return "C";
+    case FASE_D: return "D";
+  }
+  return "?";
+}
+
+void actualizarTelemetria() {
+  if (tTelemetria > T_TELEMETRIA) {
+    tTelemetria = 0;
+    enviarTelemetria();
+  }
+}
+
+void enviarTelemetria() {
+  float co2 = leerCO2ppm();
+
+  Serial.print("{\"fase\":\"");
+  Serial.print(nombreFase(fase));
+  Serial.print("\",\"co2\":");
+  Serial.print((int)co2);
+  Serial.print(",\"ldr\":[");
+  Serial.print(analogRead(LDR1));
+  Serial.print(",");
+  Serial.print(analogRead(LDR2));
+  Serial.print("],\"cny\":[");
+  Serial.print(digitalRead(CNY1)); Serial.print(",");
+  Serial.print(digitalRead(CNY2)); Serial.print(",");
+  Serial.print(digitalRead(CNY3)); Serial.print(",");
+  Serial.print(digitalRead(CNY4)); Serial.print(",");
+  Serial.print(digitalRead(CNY5)); Serial.print(",");
+  Serial.print(digitalRead(CNY6));
+  Serial.print("],\"det\":");
+  Serial.print(contarDetectadosLocal());
+  Serial.print(",\"p1\":");
+  Serial.print(botonPresionado(P1) ? 1 : 0);
+  Serial.print(",\"p2\":");
+  Serial.print(botonPresionado(P2) ? 1 : 0);
+  Serial.println("}");
+}
+
+// --- Recepcion de telemetria de la otra maqueta, reenviada por puente_serial.py ---
+// Solo lee "det" (conteo local de la otra placa) para sumarlo al propio; ignora el resto.
+void leerSerialEntrante() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      procesarLineaRemota(bufferSerial);
+      bufferSerial = "";
+    } else if (c != '\r') {
+      bufferSerial += c;
+      if (bufferSerial.length() > 200) bufferSerial = ""; // linea corrupta/sin terminar, descartar
+    }
+  }
+}
+
+void procesarLineaRemota(const String &linea) {
+  if (!linea.startsWith("{")) return; // fragmento incompleto, ignorar
+  int idx = linea.indexOf("\"det\":");
+  if (idx == -1) return;
+  detectadosRemoto = linea.substring(idx + 6).toInt();
 }

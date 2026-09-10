@@ -6,7 +6,7 @@ Proyecto final del curso **Ingeniería de Sistemas Autoadaptables (ISA262)**: un
 
 - **`docs/`** — copia local, literal, del sitio del curso ([isa262.davinsony.com](https://isa262.davinsony.com)). Cada `.md` tiene un `source:` con la URL original. Empieza por [`docs/README.md`](docs/README.md) (índice) y [`docs/GAPS.md`](docs/GAPS.md) (temas que el sitio no cubre, sobre todo nivel alto).
 - **`assets/`** — recursos descargados: código de ejemplo, diapositivas de clase, PDFs, esquemáticos, proyectos Wokwi.
-- **`proyecto/`** — una carpeta por nivel de implementación (`nivel_bajo/`, `nivel_medio/`, `nivel_alto/`), cada una con su código y su propio README de qué debería pasar al simularla.
+- **`proyecto/`** — una carpeta por nivel de implementación (`nivel_bajo/`, `nivel_medio/`, `nivel_alto/`), cada una con su código y su propio README de qué debería pasar al simularla. `proyecto/sim/` tiene las pruebas: un arnés nativo (`run.sh`), guiones para el simulador Wokwi (`wokwi/run_wokwi.sh`) y el entrenamiento del nivel alto (`entrenar.sh`).
 
 ## Maqueta: pines de entrada/salida
 
@@ -31,11 +31,26 @@ Cada carpeta en `proyecto/<nivel>/` trae `wokwi.toml`, `diagram.json`, `code.bin
 
 ## Cómo compilar un nivel nuevo
 
+Hay dos destinos y cada uno necesita su propia opción de compilación, porque en el ESP32-S3 el `Serial` del sketch puede ir al UART0 o al USB nativo:
+
+**Para Wokwi** (los `code.bin`/`code.elf` que están en el repo): sin `CDCOnBoot`. El monitor serial de Wokwi está conectado al UART0 (`esp:TX`/`esp:RX` en `diagram.json`); con `CDCOnBoot=cdc` el sketch corre pero no se ve ni una línea de telemetría ni acepta comandos (verificado con `wokwi-cli`: solo aparece el arranque de la ROM).
+
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32s3 proyecto/<nivel> --export-binaries
 cp proyecto/<nivel>/build/esp32.esp32.esp32s3/<nivel>.ino.bin proyecto/<nivel>/code.bin
 cp proyecto/<nivel>/build/esp32.esp32.esp32s3/<nivel>.ino.elf proyecto/<nivel>/code.elf
 ```
+
+**Para la placa física**: con `CDCOnBoot=cdc`, que manda `Serial` por el mismo USB con el que se programa. Sin esa opción la placa corre pero no se ve nada en el puerto.
+
+```bash
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/<nivel>
+arduino-cli upload -p <puerto> --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" proyecto/<nivel>
+```
+
+Los sketches usan `Serial.setTxTimeoutMs(0)` dentro de `#if ARDUINO_USB_CDC_ON_BOOT`, porque ese método solo existe en la clase `HWCDC` (USB) y no en `HardwareSerial` (UART); así el mismo código compila en las dos variantes (core esp32 3.3.11).
+
+Librerías necesarias en `~/Arduino/libraries/`: `LiquidCrystal I2C` (gestor de librerías) y `TimerMEF` (copiar el código de [`docs/software/timer-mef.md`](docs/software/timer-mef.md) a `TimerMEF/TimerMEF.h`).
 
 ## Rúbrica de la entrega
 
